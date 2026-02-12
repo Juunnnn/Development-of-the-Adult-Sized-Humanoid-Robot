@@ -1,0 +1,42 @@
+controller_joint_names: [
+    # --- 몸체 및 머리 ---
+    'Waist_joint',           # 허리 회전 [cite: 3]
+    'Neck_Yaw_Joint',        # 목 좌우 (URDF 확인 필요)
+    'Neck_Pitch_Joint',      # 목 상하 (URDF 확인 필요)
+
+    # --- 왼팔 (Left Arm) ---
+    'L_shoulder_pitch_joint', # 어깨 Pitch [cite: 4]
+    'L_shoulder_roll_joint',  # 어깨 Roll [cite: 5]
+    'L_shoulder_yaw_joint',   # 어깨 Yaw [cite: 6]
+    'L_elbow_pitch_joint',    # 팔꿈치 [cite: 7]
+    'L_wrist_yaw',            # 손목 
+
+    # --- 왼손 손가락 (Left Fingers) ---
+    # 검지 (1)
+    'L_AA_1_joint', 'L_FE_1_joint',
+    # 중지 (2)
+    'L_AA_2_joint', 'L_FE_2_joint',
+    # 약지 (3)
+    'L_AA_3_joint', 'L_FE_3_joint',
+    # 소지 (4)
+    'L_AA_4_joint', 'L_FE_4_joint',
+
+    # --- 오른팔 (Right Arm) ---
+    'R_shoulder_pitch_joint', 
+    'R_shoulder_roll_joint', 
+    'R_shoulder_yaw_joint', 
+    'R_elbow_pitch_joint', 
+    'R_wrist_yaw',
+
+    # --- 오른손 손가락 (Right Fingers - URDF 대칭 구조 반영) ---
+    'R_AA_1_joint', 'R_FE_1_joint',
+    'R_AA_2_joint', 'R_FE_2_joint',
+    'R_AA_3_joint', 'R_FE_3_joint',
+    'R_AA_4_joint', 'R_FE_4_joint',
+
+    # --- 왼다리 (Left Leg) ---
+    'L_hip_joint', 'L_hip2_joint', 'L_thigh_joint', 'L_calf_joint', 'L_toe_joint',
+
+    # --- 오른다리 (Right Leg) ---
+    'R_hip_joint', 'R_hip2_joint', 'R_thigh_joint', 'R_calf_joint', 'R_toe_joint'
+]

@@ -1,0 +1,3106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="Wholebody_39_DoF_URDF">
+  <link
+    name="Pelvis">
+    <inertial>
+      <origin
+        xyz="-0.018793 0.000052 0.034756"
+        rpy="0 0 0" />
+      <mass
+        value="6.636796" />
+      <inertia
+        ixx="0.073763"
+        ixy="0.000024"
+        ixz="0.001899"
+        iyy="0.022641"
+        iyz="-0.000003"
+        izz="0.087990" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Pelvis.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Pelvis.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="Torso">
+    <inertial>
+      <origin
+        xyz="-0.015777 -0.000523 0.232555"
+        rpy="0 0 0" />
+      <mass
+        value="13.423049" />
+      <inertia
+        ixx="0.226837"
+        ixy="0.000171"
+        ixz="-0.004416"
+        iyy="0.165371"
+        iyz="-0.000024"
+        izz="0.098576" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Torso.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Torso.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link 
+    name="IMU_link">
+    <inertial>
+      <mass value="0.01"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001"/>
+    </inertial>
+    </link>
+  <joint 
+    name="IMU_joint" type="fixed">
+    <parent link="Torso"/>
+    <child link="IMU_link"/>
+    <origin xyz="-0.00178 0 0.04725" rpy="3.14159 0 0"/>
+  </joint>
+  <joint
+    name="Waist_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 0.0825"
+      rpy="0 0 0" />
+    <parent
+      link="Pelvis" />
+    <child
+      link="Torso" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="120"
+      velocity="16" />
+  </joint>
+  <!-- Left Arm Configuration -->
+  <link
+    name="L_shoulder_pitch">
+    <inertial>
+      <origin
+        xyz="0.002264 0.049276 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.4695" />
+      <inertia
+        ixx="0.000899"
+        ixy="-6.5E-05"
+        ixz="0"
+        iyy="0.000951"
+        iyz="0"
+        izz="0.001364" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_pitch.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_pitch.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_shoulder_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="0 0.16 0.36424"
+      rpy="0.34907 0 0" />
+    <parent
+      link="Torso" />
+    <child
+      link="L_shoulder_pitch" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="1.04"
+      effort="60"
+      velocity="18" />
+  </joint>
+  <link
+    name="L_shoulder_roll">
+    <inertial>
+      <origin
+        xyz="0.000605 6.8E-05 -0.08074"
+        rpy="0 0 0" />
+      <mass
+        value="2.05" />
+      <inertia
+        ixx="0.020258"
+        ixy="-5E-06"
+        ixz="-0.000316"
+        iyy="0.020052"
+        iyz="4.5E-05"
+        izz="0.002351" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_roll.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_roll.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_shoulder_roll_joint"
+    type="revolute">
+    <origin
+      xyz="0 0.082 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_shoulder_pitch" />
+    <child
+      link="L_shoulder_roll" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.34"
+      upper="2.79"
+      effort="60"
+      velocity="18" />
+  </joint>
+  <link
+    name="L_shoulder_yaw">
+    <inertial>
+      <origin
+        xyz="4.9E-05 0.002116 -0.045474"
+        rpy="0 0 0" />
+      <mass
+        value="0.602" />
+      <inertia
+        ixx="0.000595"
+        ixy="0"
+        ixz="0"
+        iyy="0.000485"
+        iyz="3E-06"
+        izz="0.000471" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_yaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_shoulder_yaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_shoulder_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.2505"
+      rpy="0 0 0" />
+    <parent
+      link="L_shoulder_roll" />
+    <child
+      link="L_shoulder_yaw" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+  <link
+    name="L_elbow_pitch">
+    <inertial>
+      <origin
+        xyz="0 -0.000251 -0.078513"
+        rpy="0 0 0" />
+      <mass
+        value="0.3055" />
+      <inertia
+        ixx="0.00177"
+        ixy="0"
+        ixz="0"
+        iyy="0.0016"
+        iyz="4E-06"
+        izz="0.000308" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_elbow_pitch.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_elbow_pitch.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_elbow_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0545"
+      rpy="0 0 0" />
+    <parent
+      link="L_shoulder_yaw" />
+    <child
+      link="L_elbow_pitch" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.18166"
+      upper="0"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+  <link
+    name="L_wrist_yaw">
+    <inertial>
+      <origin
+        xyz="-0.000329984012929371 0.00594346067226319 -0.106656691141782"
+        rpy="0 0 0" />
+      <mass
+        value="0.395532703341776" />
+      <inertia
+        ixx="0.00023770816810234"
+        ixy="-7.09453016437725E-07"
+        ixz="-3.7216058121624E-06"
+        iyy="0.000332051383319611"
+        iyz="-5.3557589558487E-06"
+        izz="0.000216265758690342" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_wrist_yaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_wrist_yaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <!-- Left Hand Configuration -->
+  <joint
+    name="L_wrist_yaw"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.13"
+      rpy="0 0 0" />
+    <parent
+      link="L_elbow_pitch" />
+    <child
+      link="L_wrist_yaw" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="L_AA_1">
+    <inertial>
+      <origin
+        xyz="2.08166817117217E-17 6.93889390390723E-18 -0.00171325069088537"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783727E-08"
+        ixy="-1.32348898008479E-23"
+        ixz="-9.17593007133432E-23"
+        iyy="2.98956667235184E-08"
+        iyz="-1.03924486576363E-22"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_AA_1_joint"
+    type="revolute">
+    <origin
+      xyz="0.0245 -0.028078 -0.145"
+      rpy="0 0 -1.2217" />
+    <parent
+      link="L_wrist_yaw" />
+    <child
+      link="L_AA_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_1">
+    <inertial>
+      <origin
+        xyz="0.0280827255974237 0.00432407711992562 -3.51017115719152E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.010491110414633" />
+      <inertia
+        ixx="7.42451359014076E-07"
+        ixy="1.69878889734858E-08"
+        ixz="2.1773477488598E-11"
+        iyy="2.14436927392561E-06"
+        iyz="9.36543913311906E-12"
+        izz="2.05148790115911E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_1_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="L_AA_1" />
+    <child
+      link="L_FE_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_follower_1">
+    <inertial>
+      <origin
+        xyz="0.0188007918340424 0.00174498988966857 7.07827509514869E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704236095368229" />
+      <inertia
+        ixx="3.28347359043368E-07"
+        ixy="-1.01002951232267E-07"
+        ixz="3.42765977692611E-12"
+        iyy="9.52598534023926E-07"
+        iyz="-3.73486330946211E-12"
+        izz="9.45205911191208E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_follower_1_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_1" />
+    <child
+      link="L_FE_follower_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="L_FE_1_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="L_finger_end_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="L_finger_end_joint_1"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_follower_1" />
+    <child
+      link="L_finger_end_1" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="L_AA_2">
+    <inertial>
+      <origin
+        xyz="0 -6.93889390390723E-18 -0.00171325069088536"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783727E-08"
+        ixy="-1.07206905508241E-23"
+        ixz="2.20300519008688E-23"
+        iyy="2.98956667235184E-08"
+        iyz="1.73538046766243E-23"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_AA_2_joint"
+    type="revolute">
+    <origin
+      xyz="0.0245 0.015 -0.221"
+      rpy="1.5708 1.5708 3.1416" />
+    <parent
+      link="L_wrist_yaw" />
+    <child
+      link="L_AA_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_2">
+    <inertial>
+      <origin
+        xyz="0.0280828431728204 0.0043247771089509 -3.43287536979306E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104903083657631" />
+      <inertia
+        ixx="7.42369973112389E-07"
+        ixy="1.69608422129104E-08"
+        ixz="1.1443029178729E-11"
+        iyy="2.14427540719906E-06"
+        iyz="-2.16450313508245E-11"
+        izz="2.05136785211372E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_2_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="L_AA_2" />
+    <child
+      link="L_FE_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_follower_2">
+    <inertial>
+      <origin
+        xyz="0.0188002073342205 0.00174514484880743 7.535274919937E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704211891368601" />
+      <inertia
+        ixx="3.28334355498698E-07"
+        ixy="-1.00978091734471E-07"
+        ixz="9.65770251785146E-12"
+        iyy="9.5254545992482E-07"
+        iyz="-5.15890483675741E-12"
+        izz="9.45145956774421E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_follower_2_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_2" />
+    <child
+      link="L_FE_follower_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="L_FE_2_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="L_finger_end_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="L_finger_end_joint_2"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_follower_2" />
+    <child
+      link="L_finger_end_2" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="L_AA_3">
+    <inertial>
+      <origin
+        xyz="-1.38777878078145E-17 0 -0.00171325069088537"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677003" />
+      <inertia
+        ixx="3.18763921783726E-08"
+        ixy="-5.58346913473294E-24"
+        ixz="4.68276664934331E-23"
+        iyy="2.98956667235184E-08"
+        iyz="4.45932064162415E-23"
+        izz="1.16989572197794E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_AA_3_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0083 0.015 -0.21495"
+      rpy="1.5708 1.4661 3.1416" />
+    <parent
+      link="L_wrist_yaw" />
+    <child
+      link="L_AA_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_3">
+    <inertial>
+      <origin
+        xyz="0.0280828470272307 0.00432477624330504 -3.43205770030608E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104902954833158" />
+      <inertia
+        ixx="7.42369511740642E-07"
+        ixy="1.69608860847215E-08"
+        ixz="1.04023643562587E-11"
+        iyy="2.14427355266285E-06"
+        iyz="-2.13740517857574E-11"
+        izz="2.05136558231907E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_3_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="L_AA_3" />
+    <child
+      link="L_FE_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_follower_3">
+    <inertial>
+      <origin
+        xyz="0.0188006260762054 0.00174497339410686 7.37290614227781E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704229670162109" />
+      <inertia
+        ixx="3.28345540498135E-07"
+        ixy="-1.00999595754401E-07"
+        ixz="4.8505206222771E-12"
+        iyy="9.52587340359083E-07"
+        iyz="-3.9099121727616E-12"
+        izz="9.45197245094476E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_follower_3_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_3" />
+    <child
+      link="L_FE_follower_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="L_FE_3_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="L_finger_end_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="L_finger_end_joint_3"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_follower_3" />
+    <child
+      link="L_finger_end_3" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="L_AA_4">
+    <inertial>
+      <origin
+        xyz="-2.08166817117217E-17 -1.38777878078145E-17 -0.00171325069088536"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677003" />
+      <inertia
+        ixx="3.18763921783727E-08"
+        ixy="-7.03103520670074E-24"
+        ixz="6.53158296964723E-23"
+        iyy="2.98956667235184E-08"
+        iyz="1.37102600933685E-23"
+        izz="1.16989572197794E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_AA_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_AA_4_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0405 0.015 -0.20394"
+      rpy="1.5708 1.3352 3.1416" />
+    <parent
+      link="L_wrist_yaw" />
+    <child
+      link="L_AA_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_4">
+    <inertial>
+      <origin
+        xyz="0.0280828497607884 0.00432477546121691 -3.43211702828194E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104902928738754" />
+      <inertia
+        ixx="7.4236930329002E-07"
+        ixy="1.69610084973216E-08"
+        ixz="1.05211522996296E-11"
+        iyy="2.14427296522921E-06"
+        iyz="-2.13873179719593E-11"
+        izz="2.05136489755342E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_4_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="L_AA_4" />
+    <child
+      link="L_FE_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="L_FE_follower_4">
+    <inertial>
+      <origin
+        xyz="0.0188007064809584 0.00174500127316697 7.34181068537398E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704232481737789" />
+      <inertia
+        ixx="3.28346886626797E-07"
+        ixy="-1.01001492919986E-07"
+        ixz="4.63117679776971E-12"
+        iyy="9.52589238635158E-07"
+        iyz="-4.07263630761522E-12"
+        izz="9.45198053663592E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_FE_follower_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_FE_follower_4_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_4" />
+    <child
+      link="L_FE_follower_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="L_FE_4_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="L_finger_end_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="L_finger_end_joint_4"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="L_FE_follower_4" />
+    <child
+      link="L_finger_end_4" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <!-- Right Arm Configuration -->
+  <link
+    name="R_shoulder_pitch">
+    <inertial>
+      <origin
+        xyz="0.002185 -0.04921 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.4675" />
+      <inertia
+        ixx="0.000895"
+        ixy="6.5E-05"
+        ixz="0"
+        iyy="0.000946"
+        iyz="0"
+        izz="0.001358" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_pitch.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_pitch.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_shoulder_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.16 0.36424"
+      rpy="-0.34907 0 0" />
+    <parent
+      link="Torso" />
+    <child
+      link="R_shoulder_pitch" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="1.04"
+      effort="60"
+      velocity="18" />
+  </joint>
+  <link
+    name="R_shoulder_roll">
+    <inertial>
+      <origin
+        xyz="0.000805 -0.000221 -0.080651"
+        rpy="0 0 0" />
+      <mass
+        value="2.05" />
+      <inertia
+        ixx="0.020167"
+        ixy="-5E-06"
+        ixz="-0.00033"
+        iyy="0.019962"
+        iyz="-2.4E-05"
+        izz="0.002330" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_roll.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_roll.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_shoulder_roll_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.082 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_shoulder_pitch" />
+    <child
+      link="R_shoulder_roll" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-2.79"
+      upper="0.34"
+      effort="60"
+      velocity="18" />
+  </joint>
+  <link
+    name="R_shoulder_yaw">
+    <inertial>
+      <origin
+        xyz="-4.9E-05 -0.00212 -0.045518"
+        rpy="0 0 0" />
+      <mass
+        value="0.6025" />
+      <inertia
+        ixx="0.000595"
+        ixy="0"
+        ixz="0"
+        iyy="0.000485"
+        iyz="-3E-06"
+        izz="0.000471" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_yaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_shoulder_yaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_shoulder_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.2505"
+      rpy="0 0 0" />
+    <parent
+      link="R_shoulder_roll" />
+    <child
+      link="R_shoulder_yaw" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+  <link
+    name="R_elbow_pitch">
+    <inertial>
+      <origin
+        xyz="0 0.000188 -0.07906"
+        rpy="0 0 0" />
+      <mass
+        value="0.304" />
+      <inertia
+        ixx="0.001765"
+        ixy="0"
+        ixz="0"
+        iyy="0.001598"
+        iyz="-3E-06"
+        izz="0.000304" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_elbow_pitch.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_elbow_pitch.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_elbow_pitch_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0545"
+      rpy="0 0 0" />
+    <parent
+      link="R_shoulder_yaw" />
+    <child
+      link="R_elbow_pitch" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.18166"
+      upper="0"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+  <!-- Right Hand Configuration -->
+  <link
+    name="R_wrist_yaw">
+    <inertial>
+      <origin
+        xyz="-0.000330305869665752 -0.00594269590758752 -0.106656078467146"
+        rpy="0 0 0" />
+      <mass
+        value="0.395528663570662" />
+      <inertia
+        ixx="0.000237716405905096"
+        ixy="7.16117041639886E-07"
+        ixz="-3.71870108739082E-06"
+        iyy="0.000332045571128207"
+        iyz="5.3655316498326E-06"
+        izz="0.000216265785741802" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_wrist_yaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_wrist_yaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_wrist_yaw_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.13"
+      rpy="0 0 0" />
+    <parent
+      link="R_elbow_pitch" />
+    <child
+      link="R_wrist_yaw" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.57"
+      upper="1.57"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="R_AA_1">
+    <inertial>
+      <origin
+        xyz="2.77555756156289E-17 0 -0.00171325069088537"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783726E-08"
+        ixy="-1.24077091882966E-23"
+        ixz="-7.00631950941342E-23"
+        iyy="2.98956667235184E-08"
+        iyz="-1.01018040030095E-23"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_AA_1_joint"
+    type="revolute">
+    <origin
+      xyz="0.0245 0.028078 -0.145"
+      rpy="0 0 1.2217" />
+    <parent
+      link="R_wrist_yaw" />
+    <child
+      link="R_AA_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_1">
+    <inertial>
+      <origin
+        xyz="0.0280828512818378 0.00432477460649212 -3.43343586164425E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.010490303576979" />
+      <inertia
+        ixx="7.42369373023512E-07"
+        ixy="1.69612754089394E-08"
+        ixz="1.22440846901172E-11"
+        iyy="2.14427379965347E-06"
+        iyz="-2.18042770934926E-11"
+        izz="2.05136608520214E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_1_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="R_AA_1" />
+    <child
+      link="R_FE_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_follower_1">
+    <inertial>
+      <origin
+        xyz="0.0188008367741182 0.001744897921541 7.38775626719229E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704239172409457" />
+      <inertia
+        ixx="3.28344915262959E-07"
+        ixy="-1.00998203540034E-07"
+        ixz="8.27477906778287E-12"
+        iyy="9.52593185582701E-07"
+        iyz="-1.68191948775836E-12"
+        izz="9.45195224524288E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_follower_1_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_1" />
+    <child
+      link="R_FE_follower_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="R_FE_1_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="R_finger_end_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="R_finger_end_joint_1"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_follower_1" />
+    <child
+      link="R_finger_end_1" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="R_AA_2">
+    <inertial>
+      <origin
+        xyz="-2.77555756156289E-17 0 -0.00171325069088536"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783726E-08"
+        ixy="-1.09416793957469E-23"
+        ixz="3.38858316397137E-23"
+        iyy="2.98956667235184E-08"
+        iyz="1.08405547364548E-23"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_AA_2_joint"
+    type="revolute">
+    <origin
+      xyz="0.0245 -0.015 -0.221"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="R_wrist_yaw" />
+    <child
+      link="R_AA_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_2">
+    <inertial>
+      <origin
+        xyz="0.0280828431728204 0.00432477710895083 -3.43287536979653E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104903083657632" />
+      <inertia
+        ixx="7.42369973112721E-07"
+        ixy="1.69608422127214E-08"
+        ixz="1.14430291797476E-11"
+        iyy="2.14427540719913E-06"
+        iyz="-2.16450313484941E-11"
+        izz="2.05136785211398E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_2_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="R_AA_2" />
+    <child
+      link="R_FE_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_follower_2">
+    <inertial>
+      <origin
+        xyz="0.0188002064021703 0.00174514537086411 7.53471949291318E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704211842665845" />
+      <inertia
+        ixx="3.28334333564676E-07"
+        ixy="-1.00978040186251E-07"
+        ixz="9.66383158222513E-12"
+        iyy="9.52545400046795E-07"
+        iyz="-5.15192411514506E-12"
+        izz="9.4514585593278E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_follower_2_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_2" />
+    <child
+      link="R_FE_follower_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="R_FE_2_joint"
+      multiplier="0.93"
+      offset="0" />
+   </joint>
+    <link name="R_finger_end_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="R_finger_end_joint_2"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_follower_2" />
+    <child
+      link="R_finger_end_2" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="R_AA_3">
+    <inertial>
+      <origin
+        xyz="0 0 -0.00171325069088536"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783726E-08"
+        ixy="-1.11669382694659E-23"
+        ixz="3.11546331151865E-23"
+        iyy="2.98956667235184E-08"
+        iyz="1.42855003998867E-23"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_AA_3_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0083 -0.015 -0.21495"
+      rpy="-1.5708 1.4661 -3.1416" />
+    <parent
+      link="R_wrist_yaw" />
+    <child
+      link="R_AA_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_3">
+    <inertial>
+      <origin
+        xyz="0.0280828463379453 0.0043247759066807 -3.43364982888072E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104903113551846" />
+      <inertia
+        ixx="7.42369794000714E-07"
+        ixy="1.69611060236852E-08"
+        ixz="1.24489140721616E-11"
+        iyy="2.14427515027633E-06"
+        iyz="-2.18836145954804E-11"
+        izz="2.0513677153522E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_3_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="R_AA_3" />
+    <child
+      link="R_FE_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_follower_3">
+    <inertial>
+      <origin
+        xyz="0.0188007970961429 0.00174490932713744 7.25444557711855E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704238520387116" />
+      <inertia
+        ixx="3.2834437167822E-07"
+        ixy="-1.00997092226111E-07"
+        ixz="7.04273568246732E-12"
+        iyy="9.52587968713178E-07"
+        iyz="-2.87890639565998E-12"
+        izz="9.4519538392014E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_follower_3_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_3" />
+    <child
+      link="R_FE_follower_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="R_FE_3_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="R_finger_end_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="R_finger_end_joint_3"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_follower_3" />
+    <child
+      link="R_finger_end_3" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="R_AA_4">
+    <inertial>
+      <origin
+        xyz="0 0 -0.00171325069088537"
+        rpy="0 0 0" />
+      <mass
+        value="0.000901567166677004" />
+      <inertia
+        ixx="3.18763921783727E-08"
+        ixy="-8.68539643180679E-24"
+        ixz="4.73092611995848E-23"
+        iyy="2.98956667235184E-08"
+        iyz="2.4237626542655E-23"
+        izz="1.16989572197795E-08" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_AA_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_AA_4_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0405 -0.015 -0.20394"
+      rpy="-1.5708 1.3352 -3.1416" />
+    <parent
+      link="R_wrist_yaw" />
+    <child
+      link="R_AA_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_4">
+    <inertial>
+      <origin
+        xyz="0.0280828491289631 0.00432477516439 -3.43355757538751E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0104903072388752" />
+      <inertia
+        ixx="7.42369560468167E-07"
+        ixy="1.69612059549304E-08"
+        ixz="1.2370071642251E-11"
+        iyy="2.14427441361406E-06"
+        iyz="-2.18479743379372E-11"
+        izz="2.0513668304142E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_4_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.0035"
+      rpy="1.5708 0 0" />
+    <parent
+      link="R_AA_4" />
+    <child
+      link="R_FE_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.501"
+      upper="0"
+      effort="5"
+      velocity="5" />
+  </joint>
+  <link
+    name="R_FE_follower_4">
+    <inertial>
+      <origin
+        xyz="0.0188008448531312 0.00174490073710564 7.30211670310621E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.00704240684036434" />
+      <inertia
+        ixx="3.28345333746342E-07"
+        ixy="-1.00996814729164E-07"
+        ixz="6.92179394161625E-12"
+        iyy="9.52588369302289E-07"
+        iyz="-1.99315022930368E-12"
+        izz="9.45192412210106E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_FE_follower_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_FE_follower_4_joint"
+    type="revolute">
+    <origin
+      xyz="0.052 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_4" />
+    <child
+      link="R_FE_follower_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.3963"
+      upper="0"
+      effort="5"
+      velocity="5" />
+    <mimic
+      joint="R_FE_4_joint"
+      multiplier="0.93"
+      offset="0" />
+  </joint>
+    <link name="R_finger_end_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="R_finger_end_joint_4"
+    type="fixed">
+    <origin
+      xyz="0.039 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="R_FE_follower_4" />
+    <child
+      link="R_finger_end_4" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <!-- Neck Joint Configuration -->
+  <link
+    name="Neck_Yaw">
+    <inertial>
+      <origin
+        xyz="-0.010648 7.8203E-06 0.017542"
+        rpy="0 0 0" />
+      <mass
+        value="0.061462" />
+      <inertia
+        ixx="1.0663E-05"
+        ixy="-4.4081E-09"
+        ixz="-2.5837E-07"
+        iyy="1.6539E-05"
+        iyz="5.233E-09"
+        izz="1.7541E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Neck_Yaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Neck_Yaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Neck_Yaw_Joint"
+    type="revolute">
+    <origin
+      xyz="-0.006 0 0.454"
+      rpy="0 0 0" />
+    <parent
+      link="Torso" />
+    <child
+      link="Neck_Yaw" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.39626"
+      upper="1.39626"
+      effort="10"
+      velocity="10" />
+  </joint>
+  <link
+    name="Neck_Pitch">
+    <inertial>
+      <origin
+        xyz="0.0321853360572075 -0.0677576787283612 0.000810193358578671"
+        rpy="0 0 0" />
+      <mass
+        value="0.400888924681257" />
+      <inertia
+        ixx="0.00107612836097127"
+        ixy="0.000136181559574471"
+        ixz="3.40846195693275E-06"
+        iyy="0.00096055689424623"
+        iyz="-1.08799567629463E-06"
+        izz="0.00168439968882579" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Neck_Pitch.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/Neck_Pitch.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Neck_Pitch_Joint"
+    type="revolute">
+    <origin
+      xyz="0 0 0.064"
+      rpy="-1.5708 0 0" />
+    <parent
+      link="Neck_Yaw" />
+    <child
+      link="Neck_Pitch" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.872665"
+      upper="0.872665"
+      effort="10"
+      velocity="10" />
+  </joint>
+  <!-- Left Leg Configuration -->
+  <link
+    name="L_hip">
+    <inertial>
+      <origin
+        xyz="-0.086776 0.0 -0.070553"
+        rpy="0 0 0" />
+      <mass
+        value="1.5262" />
+      <inertia
+        ixx="0.004080"
+        ixy="0.0"
+        ixz="-0.000987"
+        iyy="0.003954"
+        iyz="0.0"
+        izz="0.002761" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_hip.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_hip.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_hip_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0053471 0.1175 -0.0067"
+      rpy="0 0 0" />
+    <parent
+      link="Pelvis" />
+    <child
+      link="L_hip" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-4.18"
+      upper="1.04"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="L_hip2">
+    <inertial>
+      <origin
+        xyz="0.076889 -0.034855 -0.014787"
+        rpy="0 0 0" />
+      <mass
+        value="1.726000" />
+      <inertia
+        ixx="0.006963"
+        ixy="0.000389"
+        ixz="0.000363"
+        iyy="0.004861"
+        iyz="-0.000232"
+        izz="0.007308" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_hip2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_hip2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_hip2_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0763 0 -0.084"
+      rpy="0 0 0" />
+    <parent
+      link="L_hip" />
+    <child
+      link="L_hip2" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.26"
+      upper="0.69"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="L_thigh">
+    <inertial>
+      <origin
+        xyz="0.000014 0.025209 -0.126499"
+        rpy="0 0 0" />
+      <mass
+        value="4.750102" />
+      <inertia
+        ixx="0.107593"
+        ixy="0.000001"
+        ixz="0.000009"
+        iyy="0.107651"
+        iyz="-0.006073"
+        izz="0.008614" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="0.081 -0.0148 -0.0185"
+      rpy="0 0 0" />
+    <parent
+      link="L_hip2" />
+    <child
+      link="L_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.09"
+      upper="0.34"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="L_calf">
+    <inertial>
+      <origin
+        xyz="-0.000226 0.016658 -0.148439"
+        rpy="0 0 0" />
+      <mass
+        value="1.326656" />
+      <inertia
+        ixx="0.016199"
+        ixy="0.000009"
+        ixz="0.000014"
+        iyy="0.016302"
+        iyz="0.000005"
+        izz="0.000772" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_calf_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.35"
+      rpy="0 0 0" />
+    <parent
+      link="L_thigh" />
+    <child
+      link="L_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.09"
+      upper="2.18"
+      effort="180"
+      velocity="15" />
+  </joint>
+  <link
+    name="L_toe">
+    <inertial>
+      <origin
+        xyz="0.002387 0.015129 -0.032168"
+        rpy="0 0 0" />
+      <mass
+        value="0.520" />
+      <inertia
+        ixx="0.000162"
+        ixy="-0.000012"
+        ixz="0.000083"
+        iyy="0.001485"
+        iyz="0.000004"
+        izz="0.001511" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_toe.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/L_toe.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="L_toe_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.35"
+      rpy="0 0 0" />
+    <parent
+      link="L_calf" />
+    <child
+      link="L_toe" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.78"
+      upper="0.95"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+    <link name="L_end_effector">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="L_end_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 -0.049"
+      rpy="0 0 0" />
+    <parent
+      link="L_toe" />
+    <child
+      link="L_end_effector" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <!-- Right Leg Configuration -->
+  <link
+    name="R_hip">
+    <inertial>
+      <origin
+        xyz="-0.086776 0.0 -0.070553"
+        rpy="0 0 0" />
+      <mass
+        value="1.5262" />
+      <inertia
+        ixx="0.004080"
+        ixy="0.0"
+        ixz="-0.000987"
+        iyy="0.003954"
+        iyz="0.0"
+        izz="0.002761" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_hip.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_hip.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_hip_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0053471 -0.1175 -0.0067"
+      rpy="0 0 0" />
+    <parent
+      link="Pelvis" />
+    <child
+      link="R_hip" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.04"
+      upper="4.18"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="R_hip2">
+    <inertial>
+      <origin
+        xyz="0.076889 0.034855 -0.014787"
+        rpy="0 0 0" />
+      <mass
+        value="1.726000" />
+      <inertia
+        ixx="0.006963"
+        ixy="-0.000389"
+        ixz="0.000363"
+        iyy="0.004861"
+        iyz="0.000232"
+        izz="0.007308" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_hip2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_hip2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_hip2_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0763 0 -0.084"
+      rpy="0 0 0" />
+    <parent
+      link="R_hip" />
+    <child
+      link="R_hip2" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.69"
+      upper="0.26"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="R_thigh">
+    <inertial>
+      <origin
+        xyz="-0.000014 -0.025209 -0.126499"
+        rpy="0 0 0" />
+      <mass
+        value="4.750102" />
+      <inertia
+        ixx="0.107593"
+        ixy="0.000001"
+        ixz="-0.000009"
+        iyy="0.107651"
+        iyz="0.006073"
+        izz="0.008614" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="0.081 0.0148 -0.0185"
+      rpy="0 0 0" />
+    <parent
+      link="R_hip2" />
+    <child
+      link="R_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.09"
+      upper="0.34"
+      effort="120"
+      velocity="23" />
+  </joint>
+  <link
+    name="R_calf">
+    <inertial>
+      <origin
+        xyz="0.000226 -0.016658 -0.148439"
+        rpy="0 0 0" />
+      <mass
+        value="1.326656" />
+      <inertia
+        ixx="0.016199"
+        ixy="0.000009"
+        ixz="-0.000014"
+        iyy="0.016302"
+        iyz="-0.000005"
+        izz="0.000772" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_calf_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.35"
+      rpy="0 0 0" />
+    <parent
+      link="R_thigh" />
+    <child
+      link="R_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-2.09"
+      upper="2.18"
+      effort="180"
+      velocity="15" />
+  </joint>
+  <link
+    name="R_toe">
+    <inertial>
+      <origin
+        xyz="0.002387 -0.015128 -0.032168"
+        rpy="0 0 0" />
+      <mass
+        value="0.520" />
+      <inertia
+        ixx="0.000162"
+        ixy="0.000012"
+        ixz="0.000083"
+        iyy="0.001485"
+        iyz="-0.000004"
+        izz="0.001511" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_toe.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Wholebody_39_DoF_URDF/meshes/R_toe.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R_toe_joint"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.35"
+      rpy="0 0 0" />
+    <parent
+      link="R_calf" />
+    <child
+      link="R_toe" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.78"
+      upper="0.95"
+      effort="36"
+      velocity="11.5" />
+  </joint>
+    <link name="R_end_effector">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.0001" />
+      </geometry>
+      <material name=""> 
+        <color rgba="0 0 0 0" />
+      </material>
+    </visual>
+  </link>
+  <joint name="R_end_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 -0.049"
+      rpy="0 0 0" />
+    <parent
+      link="R_toe" />
+    <child
+      link="R_end_effector" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>
