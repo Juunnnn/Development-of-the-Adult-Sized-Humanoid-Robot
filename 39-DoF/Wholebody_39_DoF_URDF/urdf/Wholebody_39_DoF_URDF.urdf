@@ -4,6 +4,15 @@
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="Wholebody_39_DoF_URDF">
+<!-- Fix Pelvis to World Frame for Gazebo-->
+<link 
+  name="world"/>
+<joint 
+  name="fixed_to_world" type="fixed">
+  <parent link="world"/>
+  <child link="Pelvis"/> <origin xyz="0 0 0.8582" rpy="0 0 0"/>
+<!-- Start URDF file of the Robot -->
+</joint>
   <link
     name="Pelvis">
     <inertial>
@@ -391,7 +400,7 @@
   </link>
   <!-- Left Hand Configuration -->
   <joint
-    name="L_wrist_yaw"
+    name="L_wrist_yaw_joint"
     type="revolute">
     <origin
       xyz="0 0 -0.13"
@@ -3103,4 +3112,8 @@
       effort="0"
       velocity="0" />
   </joint>
+  <!-- Fix all robot joints -->
+<!-- <gazebo>
+  <static>true</static>
+</gazebo> -->
 </robot>
