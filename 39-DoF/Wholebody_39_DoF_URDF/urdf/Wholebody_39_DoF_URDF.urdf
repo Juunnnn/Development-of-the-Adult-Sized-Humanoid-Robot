@@ -1215,9 +1215,9 @@
   
   <link name="Neck_Yaw">
     <inertial>
-      <origin xyz="-0.010648 7.8203E-06 0.017542" rpy="0 0 0" />
-      <mass value="0.061462" />
-      <inertia ixx="1.0663E-05" ixy="-4.4081E-09" ixz="-2.5837E-07" iyy="1.6539E-05" iyz="5.233E-09" izz="1.7541E-05" />
+      <origin xyz="-0.010721 0.000221 0.017399" rpy="0 0 0" />
+      <mass value="0.108" />
+      <inertia ixx="0.000040" ixy="0" ixz="0.000002" iyy="0.000051" iyz="0" izz="0.000036" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -1244,9 +1244,9 @@
   </joint>
   <link name="Neck_Pitch">
     <inertial>
-      <origin xyz="0.0321853360572075 -0.0677576787283612 0.000810193358578671" rpy="0 0 0" />
-      <mass value="0.400888924681257" />
-      <inertia ixx="0.00107612836097127" ixy="0.000136181559574471" ixz="3.40846195693275E-06" iyy="0.00096055689424623" iyz="-1.08799567629463E-06" izz="0.00168439968882579" />
+      <origin xyz="0.31656 -0.066451 0.000575" rpy="0 0 0" />
+      <mass value="0.433" />
+      <inertia ixx="0.001661" ixy="0.000037" ixz="-0.000017" iyy="0.001603" iyz="0.000012" izz="0.002162" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
