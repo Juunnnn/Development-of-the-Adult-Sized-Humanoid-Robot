@@ -45,7 +45,7 @@ joint_order = [
     'Neck_Yaw_Joint', 'Neck_Pitch_Joint'                   # index 10~11
 ]
 init_vals = [-1.57, 0, 0, 0, 0, -1.57, 0, 0, 0, 0, 0, 0]
-final_vals = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+final_vals = [0, 0, 0, -1.57, 0, 0, 0, 0, -1.57, 0, 0, 0]
 
 q_init = pin.neutral(model)
 joint_ids = []
@@ -166,8 +166,7 @@ CONTROL_HZ = 50  # Quest 수신 주기 약 45Hz에 맞춤
 CALIB_PATH = os.path.join(current_dir, 'calib.json')
 quest_L_init = None
 quest_R_init = None
-quest_neck_yaw_init      = 0.0
-quest_neck_pitch_init    = 0.0
+quest_neck_rot_init = np.eye(3)
 quest_L_wrist_rot_init = np.eye(3)  # 왼손목 rotation matrix 기준값
 quest_R_wrist_rot_init = np.eye(3)  # 오른손목 rotation matrix 기준값
 calibrated = False
@@ -179,6 +178,7 @@ if os.path.exists(CALIB_PATH):
     quest_R_init             = np.array(calib_data['quest_R_init'])
     quest_neck_yaw_init      = calib_data['quest_neck_yaw_init']
     quest_neck_pitch_init    = calib_data['quest_neck_pitch_init']
+    quest_neck_rot_init = np.array(calib_data.get('quest_neck_rot_init', np.eye(3).tolist()))
     quest_L_wrist_rot_init = np.array(calib_data.get('quest_L_wrist_rot_init', np.eye(3).tolist()))
     quest_R_wrist_rot_init = np.array(calib_data.get('quest_R_wrist_rot_init', np.eye(3).tolist()))
     calibrated = True
@@ -196,7 +196,7 @@ calib_samples_R_rot = []
 CALIB_COUNT = 50 # Quest가 45Hz로 데이터를 보내니까 50샘플 = 약 1초 평균 → 안정적인 기준점
 
 WRIST_SCALE = 1.25 # 손목 회전 스케일
-NECK_SCALE = 0.75 # 목 회전 스케일 
+NECK_SCALE = 1.0 # 목 회전 스케일 
 
 print("=== Teleop IK 시작! ===")
 
@@ -254,6 +254,7 @@ try:
                 head_rot = head[:3, :3]
                 quest_neck_yaw_init   = np.arctan2(-head_rot[2, 0], np.sqrt(head_rot[2, 1]**2 + head_rot[2, 2]**2))
                 quest_neck_pitch_init = np.arctan2(head_rot[2, 1], head_rot[2, 2])
+                quest_neck_rot_init = head[:3, :3].copy()
                 calibrated = True
 
                 calib_data = {
@@ -263,6 +264,7 @@ try:
                     'quest_neck_pitch_init':   float(quest_neck_pitch_init),
                     'quest_L_wrist_rot_init': quest_L_wrist_rot_init.tolist(),
                     'quest_R_wrist_rot_init': quest_R_wrist_rot_init.tolist(),
+                    'quest_neck_rot_init': quest_neck_rot_init.tolist()
                 }
                 with open(CALIB_PATH, 'w') as f:
                     json.dump(calib_data, f)
@@ -277,10 +279,21 @@ try:
             head_rot = head[:3, :3]
             raw_yaw   = np.arctan2(-head_rot[2, 0], np.sqrt(head_rot[2, 1]**2 + head_rot[2, 2]**2))
             raw_pitch = np.arctan2(head_rot[2, 1], head_rot[2, 2])
-            neck_yaw   = np.clip(NECK_SCALE * (raw_yaw   - quest_neck_yaw_init),
-                                 model.lowerPositionLimit[joint_ids[10]], model.upperPositionLimit[joint_ids[10]])
-            neck_pitch = np.clip(NECK_SCALE * -(raw_pitch - quest_neck_pitch_init),
-                                 model.lowerPositionLimit[joint_ids[11]], model.upperPositionLimit[joint_ids[11]])
+
+            # ±π 점프 방지: 상대 rotation의 quaternion으로 변환 후 추출
+            R_rel = quest_neck_rot_init.T @ head_rot
+            r = Rotation.from_matrix(R_rel)
+            qx, qy, qz, qw = r.as_quat()
+            if qw < 0:
+                qx, qy, qz, qw = -qx, -qy, -qz, -qw
+
+            # 기존 축 방향 그대로 유지하면서 불연속 제거
+            neck_yaw   = np.clip(NECK_SCALE * 2.0 * np.arctan2(-qz, qw),
+                                model.lowerPositionLimit[joint_ids[10]],
+                                model.upperPositionLimit[joint_ids[10]])
+            neck_pitch = np.clip(NECK_SCALE * -2.0 * np.arctan2(qx, qw),
+                                model.lowerPositionLimit[joint_ids[11]],
+                                model.upperPositionLimit[joint_ids[11]])
         else:
             neck_yaw, neck_pitch = 0.0, 0.0
 
