@@ -6,8 +6,11 @@ from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event
 import numpy as np
 import asyncio
 try:
-    from webrtc.zed_server import *
-except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'webrtc'))
+    from zed_server import *
+except ImportError as e:
+    print(f"webrtc import 실패: {e}")
     pass
 
 class OpenTeleVision:
@@ -39,6 +42,13 @@ class OpenTeleVision:
         
         self.head_matrix_shared = Array('d', 16, lock=True)
         self.aspect_shared = Value('d', 1.0, lock=True)
+
+        # HAND Hz 측정용 shared 변수 (프로세스 간 공유)
+        # 기존: 인스턴스 변수(_last_hand_time)는 fork 후 각 프로세스가 독립 메모리를 가져서
+        #       측정값이 엉뚱하게 나옴 (4000Hz+ 같은 말도 안 되는 수치)
+        # 변경: Value('d')로 공유 메모리에 저장 → 메인 프로세스에서도 정확히 읽힘
+        self._hand_last_time_shared = Value('d', 0.0, lock=True)
+        self._hand_hz_shared = Value('d', 0.0, lock=True)
         if stream_mode == "webrtc":
             # webrtc server
             if Args.verbose:
@@ -67,7 +77,7 @@ class OpenTeleVision:
             cors.add(app.router.add_get("/client.js", javascript))
             cors.add(app.router.add_post("/offer", rtc.offer))
 
-            self.webrtc_process = Process(target=web.run_app, args=(app,), kwargs={"host": "0.0.0.0", "port": 8080, "ssl_context": ssl_context})
+            self.webrtc_process = Process(target=web.run_app, args=(app,), kwargs={"host": "0.0.0.0", "port": 8081, "ssl_context": ssl_context})
             self.webrtc_process.daemon = True
             self.webrtc_process.start()
             # web.run_app(app, host="0.0.0.0", port=8080, ssl_context=ssl_context)
@@ -98,6 +108,14 @@ class OpenTeleVision:
         # print("camera moved", event.value["matrix"].shape, event.value["matrix"])
 
     async def on_hand_move(self, event, session, fps=60):
+        _now = time.time()
+        # shared Value로 Hz 측정 - 프로세스 간 공유 가능
+        # 기존 _last_hand_time(인스턴스 변수)은 fork 후 독립 메모리라 4000Hz+ 같은 엉뚱한 값이 나왔음
+        _last = self._hand_last_time_shared.value
+        if _last > 0:
+            _hz = 1.0 / max(_now - _last, 1e-9)
+            self._hand_hz_shared.value = _hz
+        self._hand_last_time_shared.value = _now
         try:
             lh = event.value["leftHand"]
             rh = event.value["rightHand"]
@@ -129,15 +147,17 @@ class OpenTeleVision:
             await asyncio.sleep(1)
     
     async def main_image(self, session, fps=60):
-        session.upsert @ Hands(fps=fps, stream=True, key="hands", showLeft=True, showRight=True)
+        session.upsert @ Hands(fps=fps, stream=True, key="hands",
+                            showLeft=True, showRight=True)
         while True:
-            image = self.img_array
+            image = self.img_array[:, :self.img_width, :]
             session.upsert @ ImageBackground(
                 image,
                 format="jpeg",
-                quality=80,
+                quality=95,
                 key="background",
                 interpolate=True,
+                distanceToCamera=1,
             )
             await asyncio.sleep(1/fps)
 
@@ -178,6 +198,11 @@ class OpenTeleVision:
         # with self.aspect_shared.get_lock():
             # return float(self.aspect_shared.value)
         return float(self.aspect_shared.value)
+
+    @property
+    def hand_hz(self):
+        """Quest에서 HAND_MOVE 이벤트가 오는 실제 주파수 (shared Value 기반, 프로세스 안전)"""
+        return float(self._hand_hz_shared.value)
 
     
 if __name__ == "__main__":
