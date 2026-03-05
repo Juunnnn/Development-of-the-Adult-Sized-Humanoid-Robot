@@ -20,12 +20,43 @@ from TeleVision import OpenTeleVision
 class TeleopState(Enum):
     WAITING_QUEST   = auto()  # Quest 접속 대기
     CALIBRATING     = auto()  # 캘리브레이션 수집 중
-    SYNCING         = auto()  # 로봇을 사람 자세에 맞게 이동 중 (사람은 손 고정)
+    SYNCING         = auto()  # 로봇을 사람 자세에 맞게 이동 중
+    FREEZE          = auto()  # 소실/이동불가 감지 → 경고음 + N초 대기 후 SYNCING
     TELEOP          = auto()  # 본격 텔레옵
 
-# 싱크 완료 판정 임계값: 로봇 손바닥이 목표에서 이 거리 이내면 완료
+# 싱크 완료 판정 임계값
 SYNC_POSITION_THRESH = 0.03   # [m] 3cm 이내
 SYNC_JOINT_THRESH    = 0.05   # [rad] 관절각 기준 보조 판정
+
+# FREEZE 대기 시간: 경고음 후 이 시간만큼 현재 자세 유지 후 SYNCING으로 전환
+FREEZE_DURATION = 2.0  # [s]
+
+# ── 소리 파일 경로 (원하는 파일로 교체) ──
+sound_teleop_start = '/usr/share/sounds/freedesktop/stereo/service-login.oga'     # 텔레옵 시작 (항상)
+sound_warn         = '/usr/share/sounds/freedesktop/stereo/window-attention.oga'  # 소실/이동불가 경고
+sound_sync_done    = '/usr/share/sounds/freedesktop/stereo/power-plug.oga'        # 싱크 완료 (텔레옵 재개)
+sound_calib_start  = '/usr/share/sounds/freedesktop/stereo/service-login.oga'     # 캘리브 시작
+sound_calib_done   = '/usr/share/sounds/freedesktop/stereo/service-logout.oga'    # 캘리브 완료
+
+def beep(kind='warn'):
+    """
+    kind:
+      'teleop_start' → 텔레옵 첫 시작 (초기 싱크 완료 포함, 항상 이 소리)
+      'warn'         → 소실/이동불가 경고
+      'sync_done'    → 소실 복귀 후 싱크 완료 (텔레옵 재개)
+      'calib_start'  → 캘리브레이션 시작
+      'calib_done'   → 캘리브레이션 완료
+    """
+    if kind == 'teleop_start':
+        os.system(f'paplay {sound_teleop_start} &')
+    elif kind == 'warn':
+        os.system(f'paplay {sound_warn} &')
+    elif kind == 'sync_done':
+        os.system(f'paplay {sound_sync_done} &')
+    elif kind == 'calib_start':
+        os.system(f'paplay {sound_calib_start} &')
+    elif kind == 'calib_done':
+        os.system(f'paplay {sound_calib_done} &')
 
 # ── 피노키오 모델 로드 ──
 urdf_path = '/home/teleopstation/catkin_ws/src/Wholebody_39_DoF_URDF/urdf/Wholebody_39_DoF_URDF.urdf'
@@ -359,7 +390,7 @@ print("=== Teleop IK 시작! ===")
 # 기존: q = q_init.copy() → 로봇 실제 자세 무시, 텔레옵 시작 시 앞으로나란히로 발사
 # 변경: /joint_states 수신 후 실제 관절값으로 초기화 → 현재 자세 그대로 텔레옵 시작
 print("⏳ /joint_states 수신 대기 중... (rostopic echo /joint_states 로 토픽명 확인 필요)")
-timeout = 10.0  # 최대 5초 대기
+timeout = 5.0  # 최대 5초 대기
 t_start = time.time()
 while current_joint_state is None and not rospy.is_shutdown():
     if time.time() - t_start > timeout:
@@ -393,6 +424,8 @@ q_ref_current = q.copy()
 # 싱크 관련
 sync_target_q = None      # 싱크 목표 관절각 (IK로 계산)
 _waiting_printed = False  # Quest 대기 메시지 중복 출력 방지
+freeze_start_time = None  # FREEZE 상태 진입 시각
+_first_teleop_start = True  # 첫 텔레옵 시작 여부 (True면 teleop_start 소리)
 sync_start_q  = None      # 싱크 시작 시점 관절각
 sync_start_time = None    # 싱크 시작 시각
 SYNC_DURATION = 3.0       # 싱크 최대 허용 시간 [s] (도달 못해도 이 시간 후 강제 시작)
@@ -430,7 +463,21 @@ try:
         # 상태: WAITING_QUEST
         # ══════════════════════════════════════════
         if np.allclose(r_raw, 0):
-            if teleop_state != TeleopState.WAITING_QUEST:
+            if teleop_state == TeleopState.TELEOP:
+                # 텔레옵 중 소실 → FREEZE (경고음 + 대기)
+                print("🚨 Quest 트래킹 소실 (텔레옵 중) → FREEZE")
+                teleop_state = TeleopState.FREEZE
+                freeze_start_time = time.time()
+                sync_target_q = None
+                tracking_lost = True
+                beep('warn')
+                time.sleep(1.0 / CONTROL_HZ)
+                continue
+            elif teleop_state == TeleopState.FREEZE:
+                # FREEZE 중 계속 소실 → 그냥 대기
+                time.sleep(1.0 / CONTROL_HZ)
+                continue
+            elif teleop_state not in (TeleopState.WAITING_QUEST,):
                 print("⏳ Quest 트래킹 소실 → 대기 상태로")
                 teleop_state = TeleopState.WAITING_QUEST
                 tracking_lost = True
@@ -447,6 +494,7 @@ try:
             if not calibrated:
                 teleop_state = TeleopState.CALIBRATING
                 print("📐 Quest 연결됨 → 캘리브레이션 시작")
+                beep('calib_start')
             else:
                 teleop_state = TeleopState.SYNCING
                 print("🔄 Quest 연결됨 → 싱크 단계 시작 (손 고정 유지)")
@@ -457,9 +505,12 @@ try:
                 r_jump = np.linalg.norm(r_raw - prev_r_raw)
                 l_jump = np.linalg.norm(l_raw - prev_l_raw) if prev_l_raw is not None else 0
                 if r_jump > JUMP_THRESHOLD or l_jump > JUMP_THRESHOLD:
-                    print(f"🚨 손 위치 점프! R={r_jump:.3f}m L={l_jump:.3f}m → 싱크로 복귀")
-                    teleop_state = TeleopState.SYNCING
+                    print(f"🚨 손 위치 점프! R={r_jump:.3f}m L={l_jump:.3f}m → FREEZE")
+                    teleop_state = TeleopState.FREEZE
+                    freeze_start_time = time.time()
+                    sync_target_q = None
                     tracking_lost = True
+                    beep('warn')
         prev_r_raw = r_raw.copy()
         prev_l_raw = l_raw.copy()
 
@@ -505,6 +556,7 @@ try:
                 with open(CALIB_PATH, 'w') as f:
                     json.dump(calib_data, f)
                 print("✅ 캘리브레이션 완료! → 싱크 단계 시작 (손 고정 유지)")
+                beep('calib_done')
                 teleop_state = TeleopState.SYNCING
 
             time.sleep(1.0 / CONTROL_HZ)
@@ -541,6 +593,29 @@ try:
 
         L_joint_mask = joint_ids[0:4]
         R_joint_mask = joint_ids[5:9]
+
+        # ══════════════════════════════════════════
+        # 상태: FREEZE
+        # 소실/점프/이동불가 감지 후 경고음 + N초 현재 자세 유지
+        # N초 후 자동으로 SYNCING 전환
+        # ══════════════════════════════════════════
+        if teleop_state == TeleopState.FREEZE:
+            elapsed_freeze = time.time() - freeze_start_time
+            remaining = FREEZE_DURATION - elapsed_freeze
+            print(f"⏸️  FREEZE 중... {remaining:.1f}초 후 복귀 시도 (손을 목표 위치에 고정)")
+
+            if elapsed_freeze >= FREEZE_DURATION:
+                print("🔄 FREEZE 해제 → SYNCING 시작")
+                teleop_state = TeleopState.SYNCING
+                sync_target_q = None
+            else:
+                # 현재 자세 그대로 유지 (마지막 cmd_data 재발행)
+                if 'cmd_data' in dir() or 'cmd_data' in locals():
+                    cmd = Float64MultiArray()
+                    cmd.data = current_q_for_smooth
+                    pub.publish(cmd)
+                time.sleep(1.0 / CONTROL_HZ)
+                continue
 
         # ══════════════════════════════════════════
         # 상태: SYNCING
@@ -628,6 +703,11 @@ try:
                 arm_filter.reset(q)
                 sync_target_q = None
                 teleop_state = TeleopState.TELEOP
+                if _first_teleop_start:
+                    beep('teleop_start')
+                    _first_teleop_start = False
+                else:
+                    beep('sync_done')
 
             # 싱크 중에는 계산된 보간값 발행
             if np.any(np.isnan(cmd_data)):
@@ -675,11 +755,14 @@ try:
         cmd_data[11] = neck_filtered[1]
 
         if np.any(np.isnan(cmd_data)) or np.any(np.isinf(cmd_data)):
-            print("⚠️  IK nan → 싱크로 복귀")
+            print("⚠️  IK nan/이동불가 → FREEZE")
             q = get_current_q()
             arm_filter.reset(q)
             sync_target_q = None
-            teleop_state = TeleopState.SYNCING
+            teleop_state = TeleopState.FREEZE
+            freeze_start_time = time.time()
+            tracking_lost = True
+            beep('warn')
             time.sleep(1.0 / CONTROL_HZ)
             continue
 
