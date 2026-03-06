@@ -37,6 +37,8 @@ sound_warn         = '/usr/share/sounds/freedesktop/stereo/window-attention.oga'
 sound_sync_done    = '/usr/share/sounds/freedesktop/stereo/power-plug.oga'        # 싱크 완료 (텔레옵 재개)
 sound_calib_start  = '/usr/share/sounds/freedesktop/stereo/service-login.oga'     # 캘리브 시작
 sound_calib_done   = '/usr/share/sounds/freedesktop/stereo/service-logout.oga'    # 캘리브 완료
+intro_video_path   = '/home/teleopstation/Downloads/launch.mp4' #For my joy
+_intro_played = False
 
 def beep(kind='warn'):
     """
@@ -135,6 +137,10 @@ def compute_ik(model, data, frame_id, target_pos, q_cur,
                q_ref=None, max_iter=50, eps=1e-3,
                null_weight=0.3, joint_mask=None):
     """
+    반환값: (q, clamped)
+      q       : 최적화된 관절각 벡터
+      clamped : True이면 관절 한계에 막혀 조기 종료된 것 (팔꿈치 클램핑 / 작업공간 밖)
+
     joint_mask: 실제 IK로 제어할 관절 인덱스 리스트 (wrist_yaw 제외, 반대쪽 팔 제외)
     q_ref:      null space 기준 자세 (트래킹 시작 시점의 실제 로봇 자세)
     null_weight: null space에서 q_ref 방향으로 끌어당기는 강도
@@ -152,6 +158,7 @@ def compute_ik(model, data, frame_id, target_pos, q_cur,
     prev_err = np.inf
     clamp_count = 0          # 관절 한계 클램핑 연속 횟수
     CLAMP_LIMIT = 5          # 이 횟수 이상 클램핑되면 도달 불가로 판단, 조기 종료
+    clamped = False
 
     for i in range(max_iter):
         pin.forwardKinematics(model, data, q)
@@ -211,12 +218,13 @@ def compute_ik(model, data, frame_id, target_pos, q_cur,
         if np.linalg.norm(q_new - q_clipped) > 0.01:
             clamp_count += 1
             if clamp_count >= CLAMP_LIMIT:
+                clamped = True
                 break   # 타겟이 현재 팔 길이로 도달 불가 → 조기 종료
         else:
             clamp_count = 0  # 클램핑 해소되면 카운터 리셋
 
         q = q_clipped
-    return q
+    return q, clamped
 
 # ── Swing-Twist decomposition으로 손목 yaw 추출 ──
 def extract_wrist_twist_z(rot_mat, init_rot_mat):
@@ -387,8 +395,6 @@ NECK_SCALE = 1.0 # 목 회전 스케일
 print("=== Teleop IK 시작! ===")
 
 # ── [FIX] /joint_states 수신 대기 후 q와 current_q_for_smooth를 실제 로봇 자세로 초기화 ──
-# 기존: q = q_init.copy() → 로봇 실제 자세 무시, 텔레옵 시작 시 앞으로나란히로 발사
-# 변경: /joint_states 수신 후 실제 관절값으로 초기화 → 현재 자세 그대로 텔레옵 시작
 print("⏳ /joint_states 수신 대기 중... (rostopic echo /joint_states 로 토픽명 확인 필요)")
 timeout = 5.0  # 최대 5초 대기
 t_start = time.time()
@@ -400,8 +406,6 @@ while current_joint_state is None and not rospy.is_shutdown():
 
 q = get_current_q()
 arm_filter.reset(q)
-# current_q_for_smooth도 실제 관절값으로 초기화
-# 기존: final_vals.copy() → 실제 자세와 달라서 publish_smooth_move 시 점프 가능
 current_q_for_smooth = [float(q[idx]) for idx in joint_ids]
 print(f"✅ 초기 q 설정: {[round(q[i], 2) for i in joint_ids]}")
 
@@ -429,6 +433,10 @@ _first_teleop_start = True  # 첫 텔레옵 시작 여부 (True면 teleop_start 
 sync_start_q  = None      # 싱크 시작 시점 관절각
 sync_start_time = None    # 싱크 시작 시각
 SYNC_DURATION = 3.0       # 싱크 최대 허용 시간 [s] (도달 못해도 이 시간 후 강제 시작)
+
+# ── 클램핑 경고 쿨다운 ──
+_last_clamp_beep_time = 0.0
+CLAMP_BEEP_COOLDOWN = 3.0  # [s] 이 시간 동안 클램핑 경고음 재발생 억제
 
 # 루프 밖
 _prev_l = np.zeros(3)
@@ -490,6 +498,13 @@ try:
 
         # Quest 연결됨 → WAITING_QUEST에서 다음 상태로 전환
         _waiting_printed = False  # 다음 소실 시 다시 출력되도록 리셋
+        
+        # 🎬 [추가된 부분] 텔레옵 서버(Quest) 첫 접속 시 딱 한 번만 영상 재생!
+        if teleop_state == TeleopState.WAITING_QUEST and not _intro_played:
+            print("🎥 텔레옵 서버 접속 확인! 시작 영상을 재생합니다.")
+            os.system(f"ffplay -autoexit -fs -loglevel quiet '{intro_video_path}' &")
+            _intro_played = True
+
         if teleop_state == TeleopState.WAITING_QUEST:
             if not calibrated:
                 teleop_state = TeleopState.CALIBRATING
@@ -631,11 +646,11 @@ try:
                 # 캘리브 절대 기준으로 현재 사람 손 위치 → 로봇이 가야 할 위치
                 l_sync_target, r_sync_target = calc_target_from_calib(l_raw, r_raw)
 
-                # IK로 목표 관절각 계산
-                q_sync = compute_ik(model, data, L_palm_id, l_sync_target, q,
-                                    q_ref=q_ref_current, joint_mask=L_joint_mask)
-                q_sync = compute_ik(model, data, R_palm_id, r_sync_target, q_sync,
-                                    q_ref=q_ref_current, joint_mask=R_joint_mask)
+                # IK로 목표 관절각 계산 (SYNCING에서는 clamped 무시)
+                q_sync, _ = compute_ik(model, data, L_palm_id, l_sync_target, q,
+                                       q_ref=q_ref_current, joint_mask=L_joint_mask)
+                q_sync, _ = compute_ik(model, data, R_palm_id, r_sync_target, q_sync,
+                                       q_ref=q_ref_current, joint_mask=R_joint_mask)
                 # 손목/목도 목표에 포함
                 q_sync_cmd = [float(q_sync[idx]) for idx in joint_ids]
                 q_sync_cmd[4]  = float(l_wrist_yaw)
@@ -703,6 +718,7 @@ try:
                 arm_filter.reset(q)
                 sync_target_q = None
                 teleop_state = TeleopState.TELEOP
+
                 if _first_teleop_start:
                     beep('teleop_start')
                     _first_teleop_start = False
@@ -737,13 +753,26 @@ try:
         l_target, r_target = calc_target_from_calib(l_raw_filtered, r_raw_filtered)
         print(f"[delta] L={(l_raw_filtered-quest_L_init).round(3)} R={(r_raw_filtered-quest_R_init).round(3)}")
 
-        # IK
+        # IK — (q, clamped) 튜플로 수신
         _ik_t0 = time.time()
-        q = compute_ik(model, data, L_palm_id, l_target, q, q_ref=q_ref_current, joint_mask=L_joint_mask)
+        q, l_clamped = compute_ik(model, data, L_palm_id, l_target, q,
+                                   q_ref=q_ref_current, joint_mask=L_joint_mask)
         _ik_t1 = time.time()
-        q = compute_ik(model, data, R_palm_id, r_target, q, q_ref=q_ref_current, joint_mask=R_joint_mask)
+        q, r_clamped = compute_ik(model, data, R_palm_id, r_target, q,
+                                   q_ref=q_ref_current, joint_mask=R_joint_mask)
         _ik_t2 = time.time()
         print(f"[IK시간] L={(_ik_t1-_ik_t0)*1000:.1f}ms R={(_ik_t2-_ik_t1)*1000:.1f}ms")
+
+        # ── 클램핑 경고 (쿨다운 적용: CLAMP_BEEP_COOLDOWN초마다 최대 1회) ──
+        if l_clamped or r_clamped:
+            now = time.time()
+            if now - _last_clamp_beep_time > CLAMP_BEEP_COOLDOWN:
+                side = []
+                if l_clamped: side.append("L")
+                if r_clamped: side.append("R")
+                print(f"⚠️  관절 한계 도달 ({'+'.join(side)}팔) → 팔을 조금 당겨주세요")
+                beep('warn')
+                _last_clamp_beep_time = now
 
         # 스무딩
         q = arm_filter.filter(q)
