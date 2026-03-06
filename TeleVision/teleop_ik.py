@@ -25,7 +25,7 @@ class TeleopState(Enum):
     TELEOP          = auto()  # 본격 텔레옵
 
 # 싱크 완료 판정 임계값
-SYNC_POSITION_THRESH = 0.03   # [m] 3cm 이내
+SYNC_POSITION_THRESH = 0.05   # [m] 5cm 이내
 SYNC_JOINT_THRESH    = 0.1   # [rad] 관절각 기준 보조 판정
 
 # FREEZE 대기 시간: 경고음 후 이 시간만큼 현재 자세 유지 후 SYNCING으로 전환
