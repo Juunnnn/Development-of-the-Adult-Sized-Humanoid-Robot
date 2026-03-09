@@ -157,7 +157,9 @@ class OpenTeleVision:
                 quality=95,
                 key="background",
                 interpolate=True,
-                distanceToCamera=1,
+                distanceToCamera=2,
+                height=4.47,
+                aspect=1280/720,
             )
             await asyncio.sleep(1/fps)
 
