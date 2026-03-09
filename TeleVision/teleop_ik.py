@@ -575,7 +575,7 @@ try:
             qx, qy, qz, qw = r_neck.as_quat()
             if qw < 0:
                 qx, qy, qz, qw = -qx, -qy, -qz, -qw
-            neck_yaw   = np.clip(NECK_SCALE * 2.0 * np.arctan2(-qz, qw),
+            neck_yaw   = np.clip(NECK_SCALE * 2.0 * np.arctan2(qy, qw),
                                 model.lowerPositionLimit[joint_ids[10]],
                                 model.upperPositionLimit[joint_ids[10]])
             neck_pitch = np.clip(NECK_SCALE * -2.0 * np.arctan2(qx, qw),
