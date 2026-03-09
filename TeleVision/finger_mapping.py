@@ -1,75 +1,62 @@
 """
-finger_mapping.py
+finger_mapping.py  v3
 ─────────────────────────────────────────────────────────────
-Amazing Hand 손가락 텔레오퍼레이션 모듈
-
-로봇 손가락 구성:
-  1 = 엄지 (thumb)   → Quest landmark  1~4
-  2 = 검지 (index)   → Quest landmark  5~8
-  3 = 중지 (middle)  → Quest landmark  9~12
-  4 = 약지 (ring)    → Quest landmark 13~16
-
-관절:
-  AA  (Abduction/Adduction) : 좌우 벌림, ±20° (±0.349 rad)
-  FE  (Flexion/Extension)   : 굽힘,      0 ~ -86° (0 ~ -1.501 rad)
-  FE_follower               : FE 따라서 자동 움직임 → 제어 불필요
-
-ROS topic: /hand_controller/command  (Float64MultiArray, 16개)
-  cmd 인덱스:
-    L: [L_AA_1, L_FE_1, L_AA_2, L_FE_2, L_AA_3, L_FE_3, L_AA_4, L_FE_4]   (0~7)
-    R: [R_AA_1, R_FE_1, R_AA_2, R_FE_2, R_AA_3, R_FE_3, R_AA_4, R_FE_4]   (8~15)
-
-Quest landmark 좌표계 (WebXR):
-  - 0번 = 손목
-  - 각 손가락 4개 관절: MCP, PIP, DIP, Tip 순
-  - 손등 법선을 구해 FE 굽힘각 계산
-  - 인접 손가락 간 벡터 각도로 AA 계산
+변경사항 (v2 → v3):
+  - AA 계산을 캘리브 기준 상대값 → 절대값으로 변경
+    (손가락 사이 각도를 직접 계산 → 손바닥 방향 무관)
+  - calib_lm 파라미터 제거 (L_calib만 필요)
+  - calc_fe에 명시적 clip 추가
 """
 
 import numpy as np
-from enum import Enum, auto
+
+# ── 로봇 손가락 물리 파라미터 ──────────────────────────────
+L1      = 0.052
+L2      = 0.039
+L_TOTAL = L1 + L2   # 91mm
+MIMIC   = 0.93
 
 # ── 관절 한계 ──────────────────────────────────────────────
-AA_MIN = -0.349   # rad  (-20°)
-AA_MAX =  0.349   # rad  (+20°)
-FE_MIN = -1.501   # rad  (-86°)  → 완전히 구부러진 상태
-FE_MAX =  0.000   # rad  (  0°)  → 완전히 펼쳐진 상태
+AA_MIN = -0.349   # -20°
+AA_MAX =  0.349   # +20°
+FE_MIN = -1.501   # -86°
+FE_MAX =  0.000   #   0°
 
-# ── Quest landmark 인덱스 정의 ──────────────────────────────
-# 각 손가락: [MCP, PIP, DIP, TIP]
-THUMB_IDX  = [1,  2,  3,  4]
-INDEX_IDX  = [5,  6,  7,  8]
-MIDDLE_IDX = [9,  10, 11, 12]
-RING_IDX   = [13, 14, 15, 16]
-
-# 로봇 1~4번 ↔ Quest 손가락 매핑
-# robot finger i → quest landmark indices
-FINGER_MAP = {
-    1: THUMB_IDX,   # 로봇 1(엄지) ← Quest 엄지
-    2: INDEX_IDX,   # 로봇 2(검지) ← Quest 검지
-    3: MIDDLE_IDX,  # 로봇 3(중지) ← Quest 중지
-    4: RING_IDX,    # 로봇 4(약지) ← Quest 약지
+# ── Quest landmark 인덱스 (MCP, Tip) ──────────────────────
+# 필요하면 여기서 3↔4 교체
+FINGER_QUEST = {
+    1: (1,  4),   # 엄지  MCP=1,  Tip=4
+    2: (5,  8),   # 검지  MCP=5,  Tip=8
+    3: (9,  12),  # 중지  MCP=9,  Tip=12
+    4: (13, 16),  # 약지  MCP=13, Tip=16
 }
+MCP_IDX = {1: 1, 2: 5, 3: 9, 4: 13}
 
-# AA: 인접 손가락 쌍 (로봇 번호 기준)
-# (기준손가락, 비교손가락) → 둘 사이 벌어진 각도를 기준 손가락의 AA에 반영
-AA_PAIRS = {
-    1: (1, 2),   # 엄지 AA: 엄지-검지 벌어짐
-    2: (2, 3),   # 검지 AA: 검지-중지 벌어짐
-    3: (3, 4),   # 중지 AA: 중지-약지 벌어짐
-    4: (3, 4),   # 약지 AA: 중지-약지 벌어짐 (같은 쌍, 부호 반전)
-}
+# ── LUT ───────────────────────────────────────────────────
+def _tip_dist(fe: float) -> float:
+    ff = fe * MIMIC
+    x  = L1 * np.cos(fe) + L2 * np.cos(fe + ff)
+    y  = L1 * np.sin(fe) + L2 * np.sin(fe + ff)
+    return float(np.sqrt(x*x + y*y))
 
-# ── EMA 필터 (손가락용) ──────────────────────────────────────
+def _build_lut(n=400):
+    fe_arr   = np.linspace(FE_MIN, FE_MAX, n)
+    dist_arr = np.array([_tip_dist(fe) for fe in fe_arr])
+    return dist_arr, fe_arr
+
+_LUT_DIST, _LUT_FE = _build_lut()
+
+def dist_to_fe(d: float) -> float:
+    d_c = np.clip(d, _LUT_DIST[0], _LUT_DIST[-1])
+    return float(np.interp(d_c, _LUT_DIST, _LUT_FE))
+
+
+# ── EMA 필터 ──────────────────────────────────────────────
 class FingerEMAFilter:
-    """
-    손가락 16채널 EMA 필터
-    alpha: 높을수록 빠른 반응 (낮을수록 부드러움)
-    """
     def __init__(self, alpha=0.4, n=16):
         self.alpha = alpha
-        self.n = n
-        self.prev = None
+        self.n     = n
+        self.prev  = None
 
     def filter(self, cmd: np.ndarray) -> np.ndarray:
         if self.prev is None:
@@ -78,172 +65,159 @@ class FingerEMAFilter:
         self.prev = self.alpha * cmd + (1 - self.alpha) * self.prev
         return self.prev.copy()
 
-    def reset(self, cmd: np.ndarray = None):
-        if cmd is None:
-            self.prev = None
-        else:
-            self.prev = cmd.copy()
+    def reset(self, cmd=None):
+        self.prev = None if cmd is None else cmd.copy()
 
 
-# ── 핵심 계산 함수 ───────────────────────────────────────────
-
-def _get_palm_normal(lm: np.ndarray) -> np.ndarray:
+# ── 손바닥 법선 (매 프레임 현재 landmark로 계산) ───────────
+def _palm_normal(lm: np.ndarray) -> np.ndarray:
     """
-    손바닥 법선 벡터 계산.
-    손목(0), 검지MCP(5), 소지MCP(17)으로 평면 구성.
-    법선이 손등 방향을 향하도록 설정.
-    lm: (25, 3) landmark 배열
+    손목(0), 검지MCP(5), 약지MCP(13)으로 손바닥 평면 법선.
+    캘리브와 무관하게 현재 자세 기준.
     """
-    wrist   = lm[0]
-    idx_mcp = lm[5]
-    ring_mcp = lm[13]
-
-    v1 = idx_mcp - wrist
-    v2 = ring_mcp - wrist
-    normal = np.cross(v1, v2)
-    norm = np.linalg.norm(normal)
-    if norm < 1e-6:
-        return np.array([0.0, 0.0, 1.0])
-    return normal / norm
+    v1 = lm[5]  - lm[0]
+    v2 = lm[13] - lm[0]
+    n  = np.cross(v1, v2)
+    norm = np.linalg.norm(n)
+    return n / norm if norm > 1e-6 else np.array([0., 0., 1.])
 
 
-def calc_fe(lm: np.ndarray, finger_idx: int) -> float:
+# ── FE 계산 ────────────────────────────────────────────────
+def calc_fe(lm: np.ndarray, finger_idx: int, L_calib: float) -> float:
     """
-    FE(굽힘) 각도 계산.
-
-    방법:
-      MCP → Tip 벡터와 손바닥 법선 사이 각도로 굽힘 정도(0~1) 추정
-      - 손가락이 완전히 펴져 있으면 법선과 거의 수직 → flex_ratio ≈ 0
-      - 손가락이 완전히 구부러지면 법선과 거의 평행 → flex_ratio ≈ 1
-
-    반환: FE 관절각 (rad), 범위 [FE_MIN, FE_MAX]
+    MCP~Tip 거리 → FE 각도 (rad)
+    L_calib: 캘리브 시 MCP~Tip 거리 (m)
     """
-    idxs = FINGER_MAP[finger_idx]
-    mcp = lm[idxs[0]]
-    tip = lm[idxs[3]]
-
-    finger_vec = tip - mcp
-    fn = np.linalg.norm(finger_vec)
-    if fn < 1e-6:
+    mcp_i, tip_i = FINGER_QUEST[finger_idx]
+    d_quest = float(np.linalg.norm(lm[tip_i] - lm[mcp_i]))
+    if d_quest < 1e-6 or L_calib < 1e-6:
         return 0.0
-
-    finger_vec = finger_vec / fn
-    palm_normal = _get_palm_normal(lm)
-
-    # 법선과 손가락 벡터의 dot product = cos(각도)
-    # 완전히 펼쳤을 때: finger_vec ⊥ normal → dot ≈ 0
-    # 구부렸을 때: finger_vec ∥ normal → |dot| ≈ 1
-    dot = np.clip(np.dot(finger_vec, palm_normal), -1.0, 1.0)
-    flex_ratio = np.abs(dot)   # 0(펼침) ~ 1(구부림)
-
-    # FE 각도로 변환 (FE_MIN이 음수 = 구부림)
-    fe_angle = FE_MIN * flex_ratio
-    return float(np.clip(fe_angle, FE_MIN, FE_MAX))
+    d_robot = (d_quest / L_calib) * L_TOTAL
+    fe = dist_to_fe(d_robot)
+    return float(np.clip(fe, FE_MIN, FE_MAX))
 
 
+# ── AA 계산 (절대값 방식, 캘리브 무관) ─────────────────────
 def calc_aa(lm: np.ndarray, finger_idx: int, is_left: bool) -> float:
     """
-    AA(벌림) 각도 계산.
+    인접 손가락 MCP 간 절대 각도 → AA 관절각
+    
+    손바닥 평면에 투영한 인접 MCP 벡터의 각도를 직접 계산.
+    캘리브 자세와 무관 → 손바닥 방향이 달라도 정확.
 
-    방법:
-      인접 두 손가락의 MCP 위치 차이 벡터를 손바닥 평면에 투영한 후
-      손가락 기준 방향과의 각도로 AA 계산.
-
-    반환: AA 관절각 (rad), 범위 [AA_MIN, AA_MAX]
+    중립(손가락 나란히) = 0°
+    벌어짐 = 양수 또는 음수
     """
-    a_finger, b_finger = AA_PAIRS[finger_idx]
-    a_mcp = lm[FINGER_MAP[a_finger][0]]
-    b_mcp = lm[FINGER_MAP[b_finger][0]]
+    # 인접 MCP 쌍 (a→b 벡터 기준)
+    AA_PAIRS = {
+        1: (2, 1),   # 검지→엄지 (엄지가 벌어지는 방향)
+        2: (2, 3),   # 검지→중지
+        3: (3, 4),   # 중지→약지
+        4: (3, 4),   # 중지→약지 (약지는 반대 부호)
+    }
+    a_f, b_f = AA_PAIRS[finger_idx]
+    a_i, b_i = MCP_IDX[a_f], MCP_IDX[b_f]
 
-    # 두 MCP를 잇는 벡터 (손바닥 가로 방향)
-    sep_vec = b_mcp - a_mcp
-    sep_norm = np.linalg.norm(sep_vec)
-    if sep_norm < 1e-6:
-        return 0.0
+    normal = _palm_normal(lm)
 
-    # 손바닥 법선
-    palm_normal = _get_palm_normal(lm)
-
-    # 손바닥 평면에 투영
-    sep_proj = sep_vec - np.dot(sep_vec, palm_normal) * palm_normal
-    proj_norm = np.linalg.norm(sep_proj)
-    if proj_norm < 1e-6:
-        return 0.0
-    sep_proj = sep_proj / proj_norm
-
-    # 기준 방향: 손목→검지MCP 방향 (손바닥 평면 내 기준축)
-    wrist = lm[0]
-    idx_mcp = lm[FINGER_MAP[2][0]]   # 검지 MCP
-    ref_vec = idx_mcp - wrist
-    ref_proj = ref_vec - np.dot(ref_vec, palm_normal) * palm_normal
+    # 손바닥 기준 방향: 손목→검지MCP (손 길이 방향)
+    ref_vec = lm[MCP_IDX[2]] - lm[0]
+    ref_proj = ref_vec - np.dot(ref_vec, normal) * normal
     ref_norm = np.linalg.norm(ref_proj)
     if ref_norm < 1e-6:
         return 0.0
-    ref_proj = ref_proj / ref_norm
+    ref_proj /= ref_norm
 
-    # 두 벡터 간 부호 있는 각도
-    cross = np.cross(ref_proj, sep_proj)
-    sign = np.sign(np.dot(cross, palm_normal))
-    cos_angle = np.clip(np.dot(ref_proj, sep_proj), -1.0, 1.0)
-    angle = sign * np.arccos(cos_angle)
+    # 인접 MCP 간 벡터를 손바닥 평면에 투영
+    sep_vec  = lm[b_i] - lm[a_i]
+    sep_proj = sep_vec - np.dot(sep_vec, normal) * normal
+    sep_norm = np.linalg.norm(sep_proj)
+    if sep_norm < 1e-6:
+        return 0.0
+    sep_proj /= sep_norm
 
-    # 약지(4번)는 중지-약지 쌍이지만 약지 입장에서 반대 부호
-    if finger_idx == 4:
+    # ref_proj에 수직인 방향 (손가락 벌림 방향)
+    perp = np.cross(normal, ref_proj)  # 손바닥 평면 내 가로 방향
+
+    # sep_proj의 perp 성분 = 벌어진 정도
+    spread = np.dot(sep_proj, perp)
+    # arcsin으로 각도 계산 (작은 각도에서 선형적)
+    angle = np.arcsin(np.clip(spread, -1.0, 1.0))
+
+    # 손가락별 부호 보정
+    if finger_idx == 1:   # 엄지: 반대 방향
         angle = -angle
-
-    # 왼손/오른손 부호 대칭
-    if not is_left:
+    if finger_idx == 4:   # 약지: 반대 부호
+        angle = -angle
+    if not is_left:       # 오른손 대칭
         angle = -angle
 
     return float(np.clip(angle, AA_MIN, AA_MAX))
 
 
+# ── 한 손 전체 ─────────────────────────────────────────────
 def landmarks_to_finger_cmd(lm: np.ndarray, is_left: bool,
-                              calib_lm: np.ndarray = None) -> np.ndarray:
+                             L_calib: np.ndarray) -> np.ndarray:
     """
-    Quest landmark (25, 3) → 손가락 관절각 8개 배열
-
-    출력 순서 (한 손):
-      [AA_1, FE_1, AA_2, FE_2, AA_3, FE_3, AA_4, FE_4]
-
-    calib_lm: 캘리브레이션 시점 landmark (현재 미사용, 추후 오프셋 보정용)
+    → [AA_1, FE_1, AA_2, FE_2, AA_3, FE_3, AA_4, FE_4]
+    L_calib: shape (4,) 각 손가락 캘리브 MCP~Tip 거리
+    calib_lm 파라미터 제거됨 (v3)
     """
     cmd = np.zeros(8)
-
-    for robot_finger in range(1, 5):   # 1~4
-        aa_idx = (robot_finger - 1) * 2       # 0, 2, 4, 6
-        fe_idx = (robot_finger - 1) * 2 + 1  # 1, 3, 5, 7
-
-        cmd[aa_idx] = calc_aa(lm, robot_finger, is_left)
-        cmd[fe_idx] = calc_fe(lm, robot_finger)
-
+    for f in range(1, 5):
+        cmd[(f-1)*2]   = calc_aa(lm, f, is_left)
+        cmd[(f-1)*2+1] = calc_fe(lm, f, L_calib[f-1])
     return cmd
 
 
-def build_hand_cmd(left_lm: np.ndarray, right_lm: np.ndarray,
-                   calib_left_lm: np.ndarray = None,
-                   calib_right_lm: np.ndarray = None) -> np.ndarray:
-    """
-    양손 landmark → 16개 관절각 배열 (ROS publish용)
-
-    출력: [L_AA_1, L_FE_1, ..., L_AA_4, L_FE_4,
-           R_AA_1, R_FE_1, ..., R_AA_4, R_FE_4]
-    """
-    left_cmd  = landmarks_to_finger_cmd(left_lm,  is_left=True,  calib_lm=calib_left_lm)
-    right_cmd = landmarks_to_finger_cmd(right_lm, is_left=False, calib_lm=calib_right_lm)
-    return np.concatenate([left_cmd, right_cmd])
+def build_hand_cmd(left_lm, right_lm,
+                   L_calib_left, L_calib_right) -> np.ndarray:
+    """양손 → 16개 관절각 [L×8, R×8]"""
+    l = landmarks_to_finger_cmd(left_lm,  True,  L_calib_left)
+    r = landmarks_to_finger_cmd(right_lm, False, L_calib_right)
+    return np.concatenate([l, r])
 
 
-# ── landmark 유효성 검사 ─────────────────────────────────────
+# ── 캘리브레이션 ───────────────────────────────────────────
+def compute_finger_calib(lm: np.ndarray) -> np.ndarray:
+    """
+    손 펼친 상태 landmark → 각 손가락 MCP~Tip 거리 (4,)
+    L_calib만 저장하면 됨. calib_lm은 불필요 (v3).
+    """
+    L = np.zeros(4)
+    for f, (mcp_i, tip_i) in FINGER_QUEST.items():
+        L[f-1] = np.linalg.norm(lm[tip_i] - lm[mcp_i])
+    return L
 
-def is_landmark_valid(lm: np.ndarray, threshold: float = 1e-6) -> bool:
-    """
-    landmark가 모두 0이거나 NaN이면 유효하지 않음.
-    """
-    if lm is None:
-        return False
-    if np.any(np.isnan(lm)):
-        return False
-    if np.allclose(lm, 0, atol=threshold):
-        return False
+
+# ── 유효성 검사 ────────────────────────────────────────────
+def is_landmark_valid(lm: np.ndarray) -> bool:
+    if lm is None:                     return False
+    if np.any(np.isnan(lm)):           return False
+    if np.allclose(lm, 0, atol=1e-6):  return False
     return True
+
+
+if __name__ == '__main__':
+    print('=== LUT 검증 ===')
+    for fe_deg in [0, -20, -45, -60, -86]:
+        fe   = np.radians(fe_deg)
+        d    = _tip_dist(fe)
+        fe_r = dist_to_fe(d)
+        print(f'  FE={fe_deg:4d}°  dist={d*1000:.2f}mm  역산={np.degrees(fe_r):.2f}°')
+
+    print()
+    print('=== AA 절대값 계산 테스트 ===')
+    lm = np.zeros((25, 3))
+    lm[0]  = [0, 0, 0]       # 손목
+    lm[5]  = [0, 0.08, 0]    # 검지MCP (손 길이 방향 = Y)
+    lm[13] = [0, 0.07, 0]    # 약지MCP
+    # 손바닥 법선 = Z축
+    # 손가락 나란히 (AA=0)
+    for f, (mcp_i, _) in FINGER_QUEST.items():
+        lm[mcp_i] = [0, 0.07, 0]  # 모두 Y방향으로 나란히
+    print('  나란히 자세:')
+    for f in range(1, 5):
+        aa = calc_aa(lm, f, is_left=True)
+        print(f'    손가락{f} AA={np.degrees(aa):.1f}° (0에 가까워야)')
+    print('✅ 완료')

@@ -15,11 +15,15 @@ from pinocchio import SE3
 import rospy
 from std_msgs.msg import Float64MultiArray
 from TeleVision import OpenTeleVision
+from finger_mapping import (
+    build_hand_cmd, is_landmark_valid, FingerEMAFilter, compute_finger_calib
+)
 
 # ── 텔레옵 상태 머신 ──
 class TeleopState(Enum):
     WAITING_QUEST   = auto()  # Quest 접속 대기
     CALIBRATING     = auto()  # 캘리브레이션 수집 중
+    CALIBRATING_FINGERS = auto()  # ← 추가
     SYNCING         = auto()  # 로봇을 사람 자세에 맞게 이동 중
     FREEZE          = auto()  # 소실/이동불가 감지 → 경고음 + N초 대기 후 SYNCING
     TELEOP          = auto()  # 본격 텔레옵
@@ -87,7 +91,7 @@ joint_order = [
     'R_elbow_pitch_joint', 'R_wrist_yaw_joint',           # index 5~9  (R_wrist_yaw = index 9)
     'Neck_Yaw_Joint', 'Neck_Pitch_Joint'                   # index 10~11
 ]
-init_vals = [-1.57, 0, 0, 0, 0, -1.57, 0, 0, 0, 0, 0, 0]
+init_vals = [-1.57, 0, 0, 0, 1.57, -1.57, 0, 0, 0, -1.57, 0, 0]
 final_vals = [0, 0, 0, -1.57, 0, 0, 0, 0, -1.57, 0, 0, 0]
 
 q_init = pin.neutral(model)
@@ -304,6 +308,30 @@ tv = OpenTeleVision(resolution_cropped, shm.name, image_queue, toggle_streaming,
 # ── ROS ──
 rospy.init_node('teleop_ik', disable_signals=True)
 pub = rospy.Publisher('/arm_controller/command', Float64MultiArray, queue_size=10)
+# 손가락 전용 publisher
+# Float64MultiArray 16개: [L_AA_1, L_FE_1, ..., L_AA_4, L_FE_4,
+#                          R_AA_1, R_FE_1, ..., R_AA_4, R_FE_4]
+pub_hand = rospy.Publisher('/finger_controller/command', Float64MultiArray, queue_size=10)
+
+# 손가락 EMA 필터 (alpha 낮을수록 부드러움 / 높을수록 빠른 반응)
+finger_filter = FingerEMAFilter(alpha=0.4, n=16)
+
+# 손가락 중립 자세 (모두 펼침)
+FINGER_NEUTRAL = [0.0] * 16
+
+# 캘리브 시점 landmark 저장용
+L_calib_left   = None  
+L_calib_right  = None
+finger_calib_samples_L = []
+finger_calib_samples_R = []
+FINGER_CALIB_COUNT = 50
+finger_calib_done = False
+finger_calib_started = False  # 손가락 캘리브 자세 이동 완료 여부
+
+# 손가락 캘리브 전용 자세
+# 팔꿈치 -90°, 손목 0 (손바닥이 사용자/Quest 카메라 방향)
+# index: [L_sh_p, L_sh_r, L_sh_y, L_elbow, L_wrist,  R_sh_p, R_sh_r, R_sh_y, R_elbow, R_wrist,  neck_y, neck_p]
+finger_calib_vals = [-1.57, 0, 0, -1.57, 0,   -1.57, 0, 0, -1.57, 0,   0, 0]
 CONTROL_HZ = 50  # Quest 수신 주기 약 45Hz에 맞춤
 
 # D435i Image -> Quest Streaming
@@ -349,7 +377,8 @@ def get_current_q():
     return q_cur
 
 # ── 캘리브레이션 로드/초기화 ──
-CALIB_PATH = os.path.join(current_dir, 'calib.json')
+CALIB_PATH        = os.path.join(current_dir, 'calib.json')
+FINGER_CALIB_PATH = os.path.join(current_dir, 'finger_calib.json')
 quest_L_init = None
 quest_R_init = None
 quest_neck_rot_init = np.eye(3)
@@ -373,6 +402,19 @@ if os.path.exists(CALIB_PATH):
     print(f"   Quest R init: {quest_R_init.round(3)}")
 else:
     print("📐 캘리브레이션 파일 없음 - Quest 접속 후 팔 앞으로 쭉 뻗어!")
+
+# ── finger_calib.json 로드 ──
+if os.path.exists(FINGER_CALIB_PATH):
+    with open(FINGER_CALIB_PATH, 'r') as f:
+        fc = json.load(f)
+    L_calib_left   = np.array(fc['L_calib_left'])
+    L_calib_right  = np.array(fc['L_calib_right'])
+    finger_calib_done = True
+    print("✅ 손가락 캘리브 로드 완료")
+    print(f"   L: {(L_calib_left*1000).round(1)}mm")
+    print(f"   R: {(L_calib_right*1000).round(1)}mm")
+else:
+    print("🖐️ 손가락 캘리브 파일 없음 - Quest 접속 후 손가락 캘리브 진행")
 
 calib_samples_L = []
 calib_samples_R = []
@@ -497,11 +539,13 @@ try:
         if teleop_state == TeleopState.WAITING_QUEST:
             if not calibrated:
                 teleop_state = TeleopState.CALIBRATING
-                print("📐 Quest 연결됨 → 캘리브레이션 시작")
+                beep('calib_start')
+            elif not finger_calib_done:
+                teleop_state = TeleopState.CALIBRATING_FINGERS
+                print("🖐️ 손가락 캘리브 시작!")
                 beep('calib_start')
             else:
                 teleop_state = TeleopState.SYNCING
-                print("🔄 Quest 연결됨 → 싱크 단계 시작 (손 고정 유지)")
 
         # ── 점프 감지 (TELEOP 상태에서만) ──
         if teleop_state == TeleopState.TELEOP:
@@ -559,7 +603,77 @@ try:
                 }
                 with open(CALIB_PATH, 'w') as f:
                     json.dump(calib_data, f)
-                print("✅ 캘리브레이션 완료! → 싱크 단계 시작 (손 고정 유지)")
+                print("✅ 캘리브레이션 완료! → 손가락 캘리브 시작")
+                beep('calib_done')
+                teleop_state = TeleopState.CALIBRATING_FINGERS
+
+            time.sleep(1.0 / CONTROL_HZ)
+            continue
+        # ══════════════════════════════════════════
+        # ══════════════════════════════════════════
+        # 상태: CALIBRATING_FINGERS
+        # 흐름:
+        #   1) 로봇을 손가락 캘리브 자세로 이동 (팔꿈치 -90°, 손바닥 사용자 방향)
+        #   2) 사용자에게 같은 자세 안내
+        #   3) 손가락 landmark 50프레임 수집 → finger_calib.json 저장
+        #   4) SYNCING에서 사용자↔로봇 자세 맞춤 (기존 방식 그대로)
+        # ══════════════════════════════════════════
+        if teleop_state == TeleopState.CALIBRATING_FINGERS:
+            left_lm  = tv.left_landmarks
+            right_lm = tv.right_landmarks
+
+            # ── 1단계: 로봇 자세 이동 (한 번만) ──
+            if not finger_calib_started:
+                print("🤖 손가락 캘리브 자세로 이동 중...")
+                print("   ▶ 로봇이랑 똑같이: 팔꿈치 90° 구부리고, 손바닥이 Quest 카메라를 향하게!")
+                print("   ▶ 손가락은 쭉 펴주세요!")
+                publish_smooth_move(finger_calib_vals,
+                                    current_q_data=current_q_for_smooth,
+                                    duration=2.0,
+                                    label="손가락캘리브자세")
+                # 손가락도 펴기
+                hand_msg = Float64MultiArray()
+                hand_msg.data = FINGER_NEUTRAL
+                pub_hand.publish(hand_msg)
+                finger_calib_started = True
+                # 로봇 이동(2초) + 사용자 자세 잡을 시간(2초) 대기
+                print("⏳ 자세 잡아주세요... 4초 후 수집 시작!")
+                time.sleep(4.0)
+                continue
+
+            # ── 2단계: landmark 수집 ──
+            if is_landmark_valid(left_lm) and is_landmark_valid(right_lm):
+                finger_calib_samples_L.append(left_lm.copy())
+                finger_calib_samples_R.append(right_lm.copy())
+
+            print(f"🖐️ 손가락 캘리브 중... ({len(finger_calib_samples_L)}/{FINGER_CALIB_COUNT})"
+                  f" - 손가락 쭉 펴서 유지!")
+
+            # ── 4단계: 완료 처리 ──
+            if (len(finger_calib_samples_L) >= FINGER_CALIB_COUNT and
+                    len(finger_calib_samples_R) >= FINGER_CALIB_COUNT):
+
+                avg_left_lm  = np.mean(finger_calib_samples_L, axis=0)
+                avg_right_lm = np.mean(finger_calib_samples_R, axis=0)
+
+                L_calib_left   = compute_finger_calib(avg_left_lm)
+                L_calib_right  = compute_finger_calib(avg_right_lm)
+                finger_calib_done = True
+
+                # finger_calib.json 저장
+                finger_calib_data = {
+                    'L_calib_left':  L_calib_left.tolist(),
+                    'L_calib_right': L_calib_right.tolist(),
+                }
+                with open(FINGER_CALIB_PATH, 'w') as f:
+                    json.dump(finger_calib_data, f)
+
+                print(f"✅ 손가락 캘리브 완료!")
+                print(f"   L 손가락 길이: {(L_calib_left*1000).round(1)}mm")
+                print(f"   R 손가락 길이: {(L_calib_right*1000).round(1)}mm")
+                print(f"   💾 finger_calib.json 저장 완료")
+                # current_q_for_smooth를 현재 자세(finger_calib_vals)로 업데이트
+                current_q_for_smooth = list(finger_calib_vals)
                 beep('calib_done')
                 teleop_state = TeleopState.SYNCING
 
@@ -575,7 +689,7 @@ try:
             qx, qy, qz, qw = r_neck.as_quat()
             if qw < 0:
                 qx, qy, qz, qw = -qx, -qy, -qz, -qw
-            neck_yaw   = np.clip(NECK_SCALE * 2.0 * np.arctan2(-qz, qw),
+            neck_yaw   = np.clip(NECK_SCALE * 2.0 * np.arctan2(qy, qw),
                                 model.lowerPositionLimit[joint_ids[10]],
                                 model.upperPositionLimit[joint_ids[10]])
             neck_pitch = np.clip(NECK_SCALE * -2.0 * np.arctan2(qx, qw),
@@ -618,6 +732,10 @@ try:
                     cmd = Float64MultiArray()
                     cmd.data = current_q_for_smooth
                     pub.publish(cmd)
+                # FREEZE 중 손가락 중립 유지
+                hand_msg = Float64MultiArray()
+                hand_msg.data = FINGER_NEUTRAL
+                pub_hand.publish(hand_msg)
                 time.sleep(1.0 / CONTROL_HZ)
                 continue
 
@@ -724,6 +842,11 @@ try:
             cmd.data = cmd_data
             pub.publish(cmd)
 
+            # 싱크 중 손가락은 펼침 유지
+            hand_msg = Float64MultiArray()
+            hand_msg.data = FINGER_NEUTRAL
+            pub_hand.publish(hand_msg)
+
             elapsed = time.time() - loop_start
             time.sleep(max(0, (1.0 / CONTROL_HZ) - elapsed))
             loop_time = time.time() - loop_start
@@ -775,6 +898,41 @@ try:
         cmd = Float64MultiArray()
         cmd.data = cmd_data
         pub.publish(cmd)
+
+        # ── 손가락 제어 (TELEOP) ─────────────────────────────────
+        left_lm  = tv.left_landmarks
+        right_lm = tv.right_landmarks
+
+        if is_landmark_valid(left_lm) and is_landmark_valid(right_lm):
+            if L_calib_left is None or L_calib_right is None:
+                hand_msg = Float64MultiArray()
+                hand_msg.data = FINGER_NEUTRAL
+                pub_hand.publish(hand_msg)
+            else:
+                raw_finger_cmd = build_hand_cmd(
+                    left_lm, right_lm,
+                    L_calib_left=L_calib_left,
+                    L_calib_right=L_calib_right
+                )
+                finger_cmd = finger_filter.filter(raw_finger_cmd)
+                if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
+                    hand_msg = Float64MultiArray()
+                    hand_msg.data = finger_cmd.tolist()
+                    pub_hand.publish(hand_msg)
+                    print(f"[finger] L={[round(v,2) for v in finger_cmd[:8]]} "
+                        f"R={[round(v,2) for v in finger_cmd[8:]]}")
+            finger_cmd = finger_filter.filter(raw_finger_cmd)
+            if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
+                hand_msg = Float64MultiArray()
+                hand_msg.data = finger_cmd.tolist()
+                pub_hand.publish(hand_msg)
+                print(f"[finger] L={[round(v,2) for v in finger_cmd[:8]]} "
+                      f"R={[round(v,2) for v in finger_cmd[8:]]}")
+        else:
+            hand_msg = Float64MultiArray()
+            hand_msg.data = FINGER_NEUTRAL
+            pub_hand.publish(hand_msg)
+        # ─────────────────────────────────────────────────────────
 
         elapsed = time.time() - loop_start
         time.sleep(max(0, (1.0 / CONTROL_HZ) - elapsed))
