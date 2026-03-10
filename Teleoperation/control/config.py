@@ -36,18 +36,23 @@ KEY_FILE  = os.path.join(TELEVISION_DIR, 'key.pem')
 # 팔/목 트래킹 사용 여부. False면 IK 계산 없이 현재 자세 유지.
 USE_ARM    = True
 # 손가락 트래킹 사용 여부. False면 캘리브/텔레옵 모두 스킵하고 FINGER_NEUTRAL 유지.
-USE_FINGER = False
+USE_FINGER = True
 
 # ══════════════════════════════════════════════════════════════
 # 사운드 파일 경로
 # 상태 전환 시 beep() 함수가 이 경로의 파일을 재생함.
 # ══════════════════════════════════════════════════════════════
+# 사운드 파일 경로 설정.
+# 원하는 .oga 또는 .wav 파일 경로로 교체하면 됨.
+# 사용 가능한 기본 사운드 목록:
+#   ls /usr/share/sounds/freedesktop/stereo/
 SOUND = {
-    'teleop_start': '/usr/share/sounds/freedesktop/stereo/service-login.oga',    # 텔레옵 첫 시작
-    'warn':         '/usr/share/sounds/freedesktop/stereo/window-attention.oga', # 트래킹 소실/점프 경고
-    'sync_done':    '/usr/share/sounds/freedesktop/stereo/power-plug.oga',       # 소실 복귀 후 싱크 완료
-    'calib_start':  '/usr/share/sounds/freedesktop/stereo/service-login.oga',    # 캘리브 시작
-    'calib_done':   '/usr/share/sounds/freedesktop/stereo/service-logout.oga',   # 캘리브 완료
+    'teleop_start':       '/usr/share/sounds/freedesktop/stereo/service-login.oga',    # 텔레옵 첫 시작
+    'warn':               '/usr/share/sounds/freedesktop/stereo/window-attention.oga', # 트래킹 소실/점프 경고
+    'sync_done':          '/usr/share/sounds/freedesktop/stereo/power-plug.oga',       # 소실 복귀 후 싱크 완료
+    'calib_start':        '/usr/share/sounds/freedesktop/stereo/service-login.oga',    # 캘리브 시작
+    'calib_done':         '/usr/share/sounds/freedesktop/stereo/service-logout.oga',   # 팔 캘리브 완료
+    'finger_calib_done':  '/usr/share/sounds/freedesktop/stereo/complete.oga',         # 손가락 캘리브 완료 ← 여기서 변경
 }
 
 
@@ -67,16 +72,10 @@ JOINT_ORDER = [
 ]
 
 # 초기 자세: 양팔 앞으로 나란히. 캘리브레이션 시 이 자세로 이동한다.
-# L/R shoulder_pitch=-1.57(앞으로), L_wrist=+1.57, R_wrist=-1.57
 INIT_VALS  = [-1.57, 0, 0, 0, 0,  -1.57, 0, 0,  0, 0, 0, 0]
 
 # 종료 자세: 팔꿈치만 접힌 자세. 프로그램 종료(Ctrl+C) 시 이 자세로 복귀함.
 FINAL_VALS = [ 0,    -0.348, 0, -1.57, 0,      0,    0.348, 0, -1.57,  0,    0, 0]
-
-# 손가락 캘리브레이션 전용 자세.
-# 팔꿈치 -90°, 손목 0° → 손바닥이 Quest 카메라(사용자 앞) 방향을 향함.
-# 이 자세에서 손 펼쳐서 landmark를 수집해야 손가락 MCP~Tip 기준 거리를 제대로 잴 수 있음.
-FINGER_CALIB_VALS = [-0.523599, 0, 0, -1.57, 0,  -0.523599, 0, 0, 1.57, 0,  0, 0]
 
 # 손바닥 가상 프레임 오프셋.
 # wrist_yaw 프레임에서 z축으로 -0.11815m 떨어진 곳이 실제 손바닥 중심.
@@ -106,6 +105,9 @@ NECK_SCALE  = 1.0
 # /joint_states 수신 대기 최대 시간. 이 시간 내에 못 받으면 q_init으로 대체.
 JOINT_STATE_TIMEOUT = 5.0  # [s]
 
+# Quest 접속 후 텔레옵 시작까지 대기 시간 [s]
+TELEOP_START_DELAY = 5.0
+
 
 # ══════════════════════════════════════════════════════════════
 # SYNCING 파라미터
@@ -119,10 +121,10 @@ SYNC_POSITION_THRESH = 0.05   # [m] = 5cm
 SYNC_JOINT_THRESH    = 0.1    # [rad]
 
 # 보간 이동 목표 시간. 이 시간 안에 sync_start_q → sync_target_q로 ease-in-out 보간함.
-SYNC_DURATION = 1.5  # [s]
+SYNC_DURATION = 3.0  # [s]
 
 # 싱크 강제 종료 시간. 이 시간이 지나도 완료 판정이 안 나면 텔레옵을 강제 시작함.
-SYNC_TIMEOUT  = 5.0  # [s]
+SYNC_TIMEOUT  = 10.0  # [s]
 
 
 # ══════════════════════════════════════════════════════════════

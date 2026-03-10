@@ -51,8 +51,8 @@ FE_MAX =  0.000   #   0°  완전 펼침 (굽힘 없음)
 FINGER_QUEST = {
     1: (1,  4),   # 엄지  MCP=1,  Tip=4
     2: (5,  8),   # 검지  MCP=5,  Tip=8
-    3: (9,  12),  # 중지  MCP=9,  Tip=12
-    4: (13, 16),  # 약지  MCP=13, Tip=16
+    3: (13,  16),  # 중지  MCP=9,  Tip=12
+    4: (9, 12),  # 약지  MCP=13, Tip=16
 }
 
 # 각 손가락 MCP 인덱스만 따로 정리 (AA 계산에서 인접 손가락 간 각도 계산에 사용).
@@ -279,7 +279,7 @@ def landmarks_to_finger_cmd(lm: np.ndarray, is_left: bool,
     """
     cmd = np.zeros(8)
     for f in range(1, 5):
-        cmd[(f - 1) * 2]     = calc_aa(lm, f, is_left)
+        cmd[(f - 1) * 2]     = 0.0 #calc_aa(lm, f, is_left)
         cmd[(f - 1) * 2 + 1] = calc_fe(lm, f, L_calib[f - 1])
     return cmd
 

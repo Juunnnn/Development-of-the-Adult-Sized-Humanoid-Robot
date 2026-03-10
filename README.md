@@ -1,7 +1,10 @@
-# Development-of-a-21(+)-DoF-Adult-Sized-Humanoid-Robot
+# Development of a 21(+)-DoF Adult-Sized Humanoid Robot
+
 Development of a 21+ Degrees of Freedom Adult Sized Humanoid Robot by Sungjun Lee @Robotics Innovatory Lab, Sungkyunkwan University
 
 ![39DOF](https://github.com/user-attachments/assets/fbc37dc6-26eb-4b8e-a24a-afc2e2e71929)
+
+---
 
 ## Teleoperation
 
@@ -12,11 +15,11 @@ The operator's arm, wrist, neck, and finger movements are tracked in real time a
 
 ```
 Teleoperation/
-├── TeleVision/          # OpenTeleVision (Quest streaming server)
-│   ├── teleop/          # TeleVision core (TeleVision.py, etc.)
+├── TeleVision/              # OpenTeleVision (Quest streaming server)
+│   ├── teleop/              # TeleVision core (TeleVision.py, etc.)
 │   ├── cert.pem
 │   └── key.pem
-└── control/             # Robot control code
+└── control/                 # Robot control code
     ├── teleop_ik.py         # Main — state machine entry point
     ├── config.py            # All parameters and paths (edit here)
     ├── robot_model.py       # Pinocchio model, IK, coordinate transform
@@ -61,6 +64,8 @@ Then connect from the Quest browser:
 https://localhost:8012?ws=wss://localhost:8012
 ```
 
+After connecting, the robot automatically moves to the rest pose if needed, then counts down `TELEOP_START_DELAY` seconds before beginning sync.
+
 ### State Machine
 
 ```
@@ -71,14 +76,20 @@ WAITING_QUEST → CALIBRATING → CALIBRATING_FINGERS → SYNCING → TELEOP
 
 | State | Description |
 |---|---|
-| `WAITING_QUEST` | Waiting for Quest connection |
-| `CALIBRATING` | Collecting 50 frames with arms extended → saves `calib.json` |
+| `WAITING_QUEST` | Waiting for Quest connection. Counts down `TELEOP_START_DELAY` seconds before proceeding. |
+| `CALIBRATING` | Collecting 50 frames with arms extended forward → saves `calib.json` |
 | `CALIBRATING_FINGERS` | Collecting 50 frames with fingers extended → saves `finger_calib.json` |
-| `SYNCING` | Moving robot to match current hand position (ease-in-out interpolation) |
+| `SYNCING` | Moving robot to match current hand position (ease-in-out interpolation, max `SYNC_TIMEOUT` s) |
 | `TELEOP` | Full teleoperation — IK computed every frame |
-| `FREEZE` | Tracking lost or jump detected — holds current pose for 2s, then re-syncs |
+| `FREEZE` | Tracking lost or jump detected — holds current pose for `FREEZE_DURATION` s, then re-syncs |
 
 Calibration files are saved automatically and reloaded on the next run, so **calibration only needs to be done once** unless the setup changes.
+
+### Startup Behavior
+
+On launch, the robot checks its current pose against `FINAL_VALS` (rest pose).  
+If the difference exceeds 0.1 rad, it automatically moves to the rest pose before waiting for Quest connection.  
+This prevents unsafe motion when starting from an unknown pose (e.g. right after Gazebo spawn).
 
 ### Configuration
 
@@ -89,26 +100,32 @@ All parameters are in `control/config.py`. Key options:
 USE_ARM    = True    # Arm + neck IK teleoperation
 USE_FINGER = True    # Finger tracking and teleoperation
 
+# Startup delay after Quest connects
+TELEOP_START_DELAY = 5.0   # [s]
+
 # Control rate
 CONTROL_HZ = 50      # Main loop frequency [Hz]
 
-# EMA smoothing (0 = max smooth, 1 = no filter)
+# EMA smoothing (higher = more responsive, lower = smoother)
 EMA_ARM       = 0.6
 EMA_WRIST     = 0.6
 EMA_QUEST_POS = 0.7
 EMA_NECK      = 0.3
 EMA_FINGER    = 0.4
 
-# Safety thresholds
-JUMP_THRESHOLD       = 0.15   # [m] Hand jump detection
-FREEZE_DURATION      = 2.0    # [s] Hold time after tracking loss
-SYNC_POSITION_THRESH = 0.05   # [m] Sync completion threshold
+# Safety
+JUMP_THRESHOLD       = 0.15   # [m]   Hand position jump detection
+FREEZE_DURATION      = 2.0    # [s]   Hold time after tracking loss
+SYNC_DURATION        = 3.0    # [s]   Interpolation time for sync movement
+SYNC_TIMEOUT         = 10.0   # [s]   Max wait before forcing teleop start
+SYNC_JOINT_THRESH    = 0.1    # [rad] Sync completion: joint error threshold
+SYNC_POSITION_THRESH = 0.05   # [m]   Sync completion: palm position threshold
 ```
 
 | Use case | `USE_ARM` | `USE_FINGER` |
 |---|---|---|
 | Full teleoperation | `True` | `True` |
-| Arm only (no fingers) | `True` | `False` |
+| Arm + neck only | `True` | `False` |
 | Fingers only | `False` | `True` |
 
 ### Calibration Reset
@@ -126,10 +143,16 @@ xrfingercalib   # Reset finger calibration only
 2. Extend both arms straight forward, parallel to the ground
 3. Hold the pose — 50 frames are collected automatically (~1 second)
 
-**Finger calibration** (runs automatically if `finger_calib.json` is missing):
+**Finger calibration** (runs automatically if `finger_calib.json` is missing, requires `USE_FINGER = True`):
 1. Bend elbows to 90°, palms facing the Quest cameras
 2. Extend all fingers fully
 3. Hold the pose — 50 frames are collected automatically
+
+### Sync Behavior
+
+At the start of each session (or after a tracking loss recovery), the robot syncs to the operator's current hand position using ease-in-out interpolation.  
+If the target is outside the robot's reachable workspace, the robot moves as close as possible and teleop begins from that point.  
+Sync completes as soon as both joint error and palm position error fall within the thresholds, or after `SYNC_TIMEOUT` seconds at most.
 
 ### Mimic FE Follower
 

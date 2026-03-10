@@ -276,15 +276,19 @@ try:
         # WAITING_QUEST → 다음 상태 전환
         if teleop_state == TeleopState.WAITING_QUEST:
             if not calibrated and config.USE_ARM:
-                print("CALIBRATING Start!")
+                print("📐 CALIBRATING 시작")
                 teleop_state = TeleopState.CALIBRATING
                 beep('calib_start')
             elif not finger_calib_done and config.USE_FINGER:
-                print("CALIBRATING_FINGERS Start")
+                print("🖐️  CALIBRATING_FINGERS 시작")
                 teleop_state = TeleopState.CALIBRATING_FINGERS
                 beep('calib_start')
             else:
-                print("SYNCING Start")
+                # 카운트다운 후 SYNCING 시작
+                for i in range(int(config.TELEOP_START_DELAY), 0, -1):
+                    print(f"🕐 텔레옵 시작까지 {i}초...")
+                    time.sleep(1.0)
+                print("🔄 SYNCING 시작")
                 teleop_state = TeleopState.SYNCING
 
         # ── 점프 감지 (TELEOP) ─────────────────────────────
@@ -362,24 +366,19 @@ try:
             left_lm  = tv.left_landmarks
             right_lm = tv.right_landmarks
 
+            # 로봇 자세 이동 없이 현재 자세 유지
+            # 사용자에게 안내만 출력 (한 번만)
             if not finger_calib_started:
-                print("🤖 손가락 캘리브 자세로 이동 중...")
-                print("   팔꿈치 90° 구부리고, 손바닥이 Quest 카메라를 향하게, 손가락 쭉 펴기!")
-                publish_smooth_move(ros.pub_arm, config.FINGER_CALIB_VALS,
-                                    current_q_for_smooth, duration=2.0,
-                                    label="손가락캘리브자세")
-                ros.publish_hand(FINGER_NEUTRAL)
+                print("🖐️  손가락 캘리브 시작!")
+                print("   손바닥을 Quest 카메라 쪽으로 향하고 손가락을 쭉 펴주세요!")
                 finger_calib_started = True
-                print("⏳ 4초 후 수집 시작...")
-                time.sleep(4.0)
-                continue
 
             if is_landmark_valid(left_lm) and is_landmark_valid(right_lm):
                 finger_calib_samples_L.append(left_lm.copy())
                 finger_calib_samples_R.append(right_lm.copy())
 
             if time.time() - _last_status_time > STATUS_INTERVAL:
-                print(f"Collecting Finger Calibration Data ({len(finger_calib_samples_L)}/{config.FINGER_CALIB_COUNT})")
+                print(f"  🖐️  손가락 캘리브 수집 중 ({len(finger_calib_samples_L)}/{config.FINGER_CALIB_COUNT})")
                 _last_status_time = time.time()
 
             if (len(finger_calib_samples_L) >= config.FINGER_CALIB_COUNT and
@@ -396,9 +395,11 @@ try:
                         'L_calib_right': L_calib_right.tolist(),
                     }, f)
 
-                print(f"Finger Calibration Complete  L{(L_calib_left*1000).round(1)}mm  R{(L_calib_right*1000).round(1)}mm")
-                current_q_for_smooth = list(config.FINGER_CALIB_VALS)
-                beep('calib_done')
+                print(f"✅ 손가락 캘리브 완료  L{(L_calib_left*1000).round(1)}mm  R{(L_calib_right*1000).round(1)}mm")
+                print(f"   💾 finger_calib.json 저장 완료")
+                beep('finger_calib_done')
+                print("⏳ 3초 후 텔레옵 시작...")
+                time.sleep(3.0)
                 teleop_state = TeleopState.SYNCING
 
             time.sleep(1.0 / config.CONTROL_HZ)
@@ -521,7 +522,6 @@ try:
                 (joint_err  < config.SYNC_JOINT_THRESH and
                  l_pos_err  < config.SYNC_POSITION_THRESH and
                  r_pos_err  < config.SYNC_POSITION_THRESH)
-                or fraction >= 1.0
                 or elapsed_sync >= config.SYNC_TIMEOUT
             )
 
@@ -599,6 +599,7 @@ try:
         # 7. 손가락 publish
         left_lm  = tv.left_landmarks
         right_lm = tv.right_landmarks
+
         if config.USE_FINGER and is_landmark_valid(left_lm) and is_landmark_valid(right_lm) \
                 and L_calib_left is not None and L_calib_right is not None:
             raw_finger_cmd = build_hand_cmd(left_lm, right_lm, L_calib_left, L_calib_right)
