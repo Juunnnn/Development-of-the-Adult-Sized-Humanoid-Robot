@@ -11,6 +11,7 @@ ROS 노드 초기화, Publisher/Subscriber 생성,
 """
 
 import time
+import threading
 import numpy as np
 import cv2
 import rospy
@@ -55,6 +56,7 @@ class RosInterface:
 
         self._current_joint_state = None
         self._draw_buffer         = None  # 더블 버퍼 (깜박임 방지)
+        self._last_camera_time    = 0.0   # 마지막 카메라 프레임 수신 시각
 
         # ── 오버레이 공유 데이터 ───────────────────────────
         self.overlay: dict = {
@@ -83,6 +85,16 @@ class RosInterface:
         rospy.Subscriber(config.TOPIC_CAMERA,       Image,      self._camera_callback)
         rospy.Subscriber(config.TOPIC_JOINT_STATES, JointState, self._joint_state_callback)
 
+        # ── 카메라 없을 때도 오버레이를 그리는 백그라운드 스레드 ──
+        # 카메라가 꺼져 있으면 _camera_callback이 한 번도 호출되지 않아
+        # image_array가 회색(128) 그대로 유지됨.
+        # 이 스레드가 10Hz로 어두운 배경 위에 오버레이를 직접 렌더링해
+        # 카메라 없이도 Quest 화면에 상태/손 위치 정보가 표시되게 함.
+        self._overlay_thread = threading.Thread(
+            target=self._overlay_loop, daemon=True
+        )
+        self._overlay_thread.start()
+
     # ── 오른쪽 정렬 텍스트 헬퍼 ───────────────────────────
     def _put_text_right(self, img, text, y, x0, W, font, scale, color, thickness=1):
         """오른쪽 끝(x0+W)에서 18px 여백으로 오른쪽 정렬 출력."""
@@ -90,9 +102,31 @@ class RosInterface:
         x = int(x0 + W - tw - 18)
         cv2.putText(img, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
 
+    # ── 카메라 없을 때 오버레이 루프 ──────────────────────
+    def _overlay_loop(self):
+        """
+        카메라 프레임이 0.5초 이상 안 들어오면
+        어두운 배경(RGB 30) 위에 오버레이를 10Hz로 직접 렌더링.
+        카메라가 들어오는 동안에는 _camera_callback이 담당하므로 이 루프는 스킵.
+        """
+        BG_COLOR = 30   # 어두운 회색 배경
+        while True:
+            time.sleep(0.1)   # 10Hz
+            if time.time() - self._last_camera_time < 0.5:
+                continue   # 최근에 카메라 프레임 들어왔으면 스킵
+
+            # 버퍼 초기화 (최초 1회)
+            if self._draw_buffer is None:
+                self._draw_buffer = np.full_like(self.image_array, BG_COLOR)
+
+            self._draw_buffer[:] = BG_COLOR
+            self._draw_overlay(self._draw_buffer)
+            np.copyto(self.image_array, self._draw_buffer)
+
     # ── 카메라 콜백 ────────────────────────────────────────
     def _camera_callback(self, msg: Image):
         try:
+            self._last_camera_time = time.time()   # 카메라 활성 시각 갱신
             frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
             frame = cv2.resize(frame, (1280, 720))
 

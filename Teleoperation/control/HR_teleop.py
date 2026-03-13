@@ -1,13 +1,13 @@
 """
-teleop_ik.py  (메인)
+HR_teleop.py  (메인)
 ─────────────────────────────────────────────────────────────
 VR 텔레오퍼레이션 메인 상태 머신.
-실행: python3 teleop_ik.py
+실행: python3 HR_teleop.py
 
 상태 흐름:
-  WAITING_QUEST → CALIBRATING → CALIBRATING_FINGERS → SYNCING → TELEOP
-                                                            ↑         ↓
-                                                         FREEZE ←────┘
+  WAITING_QUEST → CALIBRATING → SYNCING → TELEOP
+                                    ↑         ↓
+                                 FREEZE ←────┘
 """
 import sys, os, json, time
 from multiprocessing import shared_memory, Queue, Event
@@ -16,7 +16,7 @@ from enum import Enum, auto
 import numpy as np
 import pinocchio as pin
 import rospy
-from std_msgs.msg import Float64MultiArray
+from scipy.spatial.transform import Rotation as Rot
 
 import config
 sys.path.insert(0, os.path.join(config.TELEVISION_DIR, 'teleop'))
@@ -24,15 +24,15 @@ sys.path.insert(0, config.CURRENT_DIR)
 sys.path.append('/opt/ros/noetic/lib/python3/dist-packages')
 from TeleVision import OpenTeleVision
 
-from robot_model   import (build_robot_model, compute_ik,
-                            extract_wrist_twist_z, calc_target_from_calib)
-from motion_utils  import (EMAFilter, make_filters, beep,
-                            publish_smooth_move, publish_init, publish_fin)
+from robot_model  import (build_robot_model, compute_ik,
+                           extract_wrist_twist_z, calc_target_from_calib)
+from motion_utils import (EMAFilter, make_filters, beep,
+                           publish_smooth_move, publish_init, publish_fin)
 from ros_interface import RosInterface
-from finger_mapping import (build_hand_cmd, is_landmark_valid,
-                             FingerEMAFilter, compute_finger_calib)
-from scipy.spatial.transform import Rotation as Rot
+from finger_mapping import (build_hand_cmd, is_landmark_valid, FingerEMAFilter)
 
+
+# ── 좌표 변환 헬퍼 ────────────────────────────────────────────
 def robot_to_quest(robot_pos, robot_init, quest_init):
     delta = robot_pos - robot_init
     return quest_init + np.array([-delta[1], delta[2], -delta[0]])
@@ -42,22 +42,19 @@ def robot_dir_to_quest(rot_matrix, side):
     URDF 기준: 오른손=wrist Y축, 왼손=wrist -Y축.
     side: 'L' 또는 'R'
     """
-    if side == 'R':
-        palm_normal = rot_matrix[:, 1]    # +Y
-    else:
-        palm_normal = -rot_matrix[:, 1]   # -Y
+    palm_normal = rot_matrix[:, 1] if side == 'R' else -rot_matrix[:, 1]
     return np.array([-palm_normal[1], palm_normal[2], -palm_normal[0]])
+
 
 # ══════════════════════════════════════════════════════════════
 # 상태 머신
 # ══════════════════════════════════════════════════════════════
 class TeleopState(Enum):
-    WAITING_QUEST       = auto()
-    CALIBRATING         = auto()
-    CALIBRATING_FINGERS = auto()
-    SYNCING             = auto()
-    FREEZE              = auto()
-    TELEOP              = auto()
+    WAITING_QUEST = auto()
+    CALIBRATING   = auto()
+    SYNCING       = auto()
+    FREEZE        = auto()
+    TELEOP        = auto()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -76,15 +73,13 @@ robot_R_init = robot_init['R']
 
 # ── INIT_POS / CALIB_POS 손바닥 방향 사전 계산 (구체 화살표용) ──
 def _fk_palm_pose(model, data, frame_id, q_vals):
-    """q_vals(JOINT_ORDER 순서)로 FK → (rotation 3x3, translation 3,) 반환."""
-    import pinocchio as _pin
-    q_tmp = _pin.neutral(model)
+    q_tmp = pin.neutral(model)
     for name, val in zip(config.JOINT_ORDER, q_vals):
         if model.existJointName(name):
             jid = model.getJointId(name)
             q_tmp[model.joints[jid].idx_q] = val
-    _pin.forwardKinematics(model, data, q_tmp)
-    _pin.updateFramePlacements(model, data)
+    pin.forwardKinematics(model, data, q_tmp)
+    pin.updateFramePlacements(model, data)
     return (data.oMf[frame_id].rotation.copy(),
             data.oMf[frame_id].translation.copy())
 
@@ -93,25 +88,22 @@ robot_R_calib_rot, robot_R_calib_pos = _fk_palm_pose(model, data, R_palm_id, con
 robot_L_init_rot,  robot_L_init_pos  = _fk_palm_pose(model, data, L_palm_id, config.INIT_POS)
 robot_R_init_rot,  robot_R_init_pos  = _fk_palm_pose(model, data, R_palm_id, config.INIT_POS)
 
-# ── WAITING 구체 위치·방향 (calib 로드 후 동적 계산, 없으면 None) ──
-# INIT_POS 자세 손바닥 위치를 calib 기준으로 Quest 좌표계로 변환
-# calib.json이 없으면 None → WAITING_QUEST 상태에서 구체 미표시
+# ── WAITING 구체 위치·방향 (calib 로드 후 동적 계산) ──────────
 WAITING_L_POS = None
 WAITING_R_POS = None
-WAITING_L_DIR = robot_dir_to_quest(robot_L_init_rot, 'L')   # 방향은 calib 무관
+WAITING_L_DIR = robot_dir_to_quest(robot_L_init_rot, 'L')
 WAITING_R_DIR = robot_dir_to_quest(robot_R_init_rot, 'R')
 
 def _compute_waiting_pos(quest_L_init, quest_R_init):
-    """calib.json 로드 후 호출. INIT_POS 자세 손바닥 위치를 Quest 좌표계로 변환."""
     l_pos = robot_to_quest(robot_L_init_pos, robot_L_calib_pos, quest_L_init)
     r_pos = robot_to_quest(robot_R_init_pos, robot_R_calib_pos, quest_R_init)
     return l_pos, r_pos
 
-# CALIB 구체 위치·방향 (하드코딩 유지 - 신체 자세 기반)
-CALIB_L_POS   = np.array([-0.25, 0.9583, -0.50])
-CALIB_R_POS   = np.array([ 0.25, 0.9583, -0.50])
-CALIB_L_DIR   = np.array([ 0.9397, -0.3420,  0.0000])
-CALIB_R_DIR   = np.array([-0.9397, -0.3420,  0.0000])
+# ── CALIB 구체 위치·방향 (신체 자세 기반 하드코딩) ─────────────
+CALIB_L_POS = np.array([-0.25, 0.9583, -0.50])
+CALIB_R_POS = np.array([ 0.25, 0.9583, -0.50])
+CALIB_L_DIR = np.array([ 0.9397, -0.3420,  0.0000])
+CALIB_R_DIR = np.array([-0.9397, -0.3420,  0.0000])
 
 # ── OpenTeleVision ─────────────────────────────────────────
 RES = (720, 1280)
@@ -149,13 +141,10 @@ quest_L_wrist_rot_init = np.eye(3)
 quest_R_wrist_rot_init = np.eye(3)
 calibrated             = False
 
-# v4 각도 방식: 캘리브 불필요 → 더미값으로 초기화
-L_calib_left         = np.zeros(4)
-L_calib_right        = np.zeros(4)
-finger_calib_done    = True   # v4: 캘리브 스킵
-finger_calib_started = False
-finger_calib_samples_L = []
-finger_calib_samples_R = []
+calib_samples_L     = []
+calib_samples_R     = []
+calib_samples_L_rot = []
+calib_samples_R_rot = []
 
 # ── calib.json 로드 ────────────────────────────────────────
 if os.path.exists(config.CALIB_PATH):
@@ -172,7 +161,6 @@ if os.path.exists(config.CALIB_PATH):
     print(f"   WAITING 구체  L{WAITING_L_POS.round(3)}  R{WAITING_R_POS.round(3)}")
 else:
     if not config.USE_ARM:
-        # 팔 트래킹 OFF → 캘리브 불필요, 더미값으로 초기화
         quest_L_init = np.zeros(3)
         quest_R_init = np.zeros(3)
         calibrated   = True
@@ -180,20 +168,12 @@ else:
     else:
         print("📐 캘리브 없음 → Quest 접속 후 팔 앞으로 쭉 뻗어!")
 
-# v4 각도 방식: finger_calib.json 불필요 → 로드 스킵
-print("✅ 손가락 캘리브 스킵 (v4 각도 방식: 캘리브 불필요)")
-
-calib_samples_L     = []
-calib_samples_R     = []
-calib_samples_L_rot = []
-calib_samples_R_rot = []
-
 # ── 초기 q ────────────────────────────────────────────────
 q = ros.wait_for_joint_states()
 arm_filter.reset(q)
 current_q_for_smooth = [float(q[idx]) for idx in joint_ids]
 
-# ── 초기 손바닥 위치 (FK) → 카운트다운 중 오버레이용 ─────
+# ── 초기 손바닥 위치 (FK) → 오버레이용 ────────────────────
 pin.forwardKinematics(model, data, q)
 pin.updateFramePlacements(model, data)
 ros.overlay.update({
@@ -218,20 +198,19 @@ tracking_lost       = False
 _waiting_printed    = False
 freeze_start_time   = None
 _first_teleop_start = True
-_countdown_start    = None    # Quest 첫 접속 시각 (카운트다운 기준)
-_calib_wait_start   = None    # CALIBRATING 진입 후 3초 대기 시각
+_countdown_start    = None
+_calib_wait_start   = None
 
 # Hz 모니터링
 _prev_l = np.zeros(3)
 _prev_r = np.zeros(3)
 _l_update_count = _r_update_count = _frame_count = 0
 
-# 주기적 출력용 (매 프레임 출력 방지)
 _last_status_time = 0.0
-STATUS_INTERVAL   = 0.5   # [s] 이 간격으로만 상태 출력
+STATUS_INTERVAL   = 0.5   # [s]
 
 print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("  🎮 Teleop IK 시작!")
+print("  🎮 HR Teleop 시작!")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 
@@ -247,7 +226,7 @@ try:
         l_raw     = left_mat[:3, 3]
         r_raw     = right_mat[:3, 3]
 
-        # Quest Hz 모니터링 (50프레임마다 1회 출력)
+        # Quest Hz 모니터링 (50프레임마다 1회)
         _frame_count += 1
         if not np.array_equal(l_raw, _prev_l):
             _l_update_count += 1
@@ -274,7 +253,7 @@ try:
                 teleop_state     = TeleopState.WAITING_QUEST
                 tracking_lost    = True
                 _waiting_printed = False
-                _countdown_start = None   # 재접속 시 카운트다운 처음부터
+                _countdown_start = None
             ros.overlay.update({'state': teleop_state.name, 'countdown': -1})
             if not _waiting_printed:
                 print("⏳ Quest 접속 대기 중...")
@@ -284,9 +263,8 @@ try:
 
         _waiting_printed = False
 
-        # WAITING_QUEST → 카운트다운 후 다음 상태 전환
+        # ── WAITING_QUEST: 카운트다운 후 다음 상태 전환 ────
         if teleop_state == TeleopState.WAITING_QUEST:
-            # Quest가 이제 막 접속됐으면 카운트다운 시작
             if _countdown_start is None:
                 _countdown_start = time.time()
                 print(f"🎮 Quest 접속 확인! {int(config.TELEOP_START_DELAY)}초 후 시작...")
@@ -294,23 +272,18 @@ try:
 
             elapsed_cd  = time.time() - _countdown_start
             remaining_s = config.TELEOP_START_DELAY - elapsed_cd
-            countdown_n = max(int(remaining_s) + 1, 0)  # 5→4→3→2→1
+            countdown_n = max(int(remaining_s) + 1, 0)
 
-            # 현재 로봇 손바닥 위치 실시간 갱신 (로봇이 INIT_POS로 이동 중일 수 있음)
             q_cur = ros.get_current_q()
             pin.forwardKinematics(model, data, q_cur)
             pin.updateFramePlacements(model, data)
-            l_actual_cd = data.oMf[L_palm_id].translation.copy()
-            r_actual_cd = data.oMf[R_palm_id].translation.copy()
             ros.overlay.update({
                 'state':     'WAITING_QUEST',
                 'countdown':  countdown_n,
-                'l_actual':   l_actual_cd.tolist(),
-                'r_actual':   r_actual_cd.tolist(),
+                'l_actual':   data.oMf[L_palm_id].translation.tolist(),
+                'r_actual':   data.oMf[R_palm_id].translation.tolist(),
             })
 
-            # Quest 3D 공간에 구체로 표시
-            # calib.json 로드 후 동적 계산된 값 사용 (없으면 미표시)
             if WAITING_L_POS is not None:
                 tv._teleop_active.value = 1 if config.USE_SPHERE else 0
                 tv.l_palm_quest = WAITING_L_POS
@@ -319,20 +292,14 @@ try:
                 tv.r_palm_dir   = WAITING_R_DIR
 
             if elapsed_cd < config.TELEOP_START_DELAY:
-                # 아직 카운트다운 중 → 루프 계속
                 time.sleep(1.0 / config.CONTROL_HZ)
                 continue
 
-            # 카운트다운 완료 → 다음 상태로
             _countdown_start = None
             ros.overlay['countdown'] = 0
             if not calibrated and config.USE_ARM:
                 print("📐 CALIBRATING 시작 - 팔 앞으로 쭉 뻗어!")
                 teleop_state = TeleopState.CALIBRATING
-                beep('calib_start')
-            elif not finger_calib_done and config.USE_FINGER:
-                print("🖐️  CALIBRATING_FINGERS 시작")
-                teleop_state = TeleopState.CALIBRATING_FINGERS
                 beep('calib_start')
             else:
                 print("🔄 SYNCING 시작")
@@ -364,7 +331,7 @@ try:
                 current_q_for_smooth = [float(q_init[idx]) for idx in joint_ids]
                 _calib_wait_start = time.time()
 
-            # ── 3초 대기: 사용자가 손을 캘리브 위치에 맞출 시간 ──
+            # 3초 대기: 사용자가 손을 캘리브 위치에 맞출 시간
             if _calib_wait_start is not None:
                 wait_elapsed = time.time() - _calib_wait_start
                 wait_remain  = max(3.0 - wait_elapsed, 0.0)
@@ -374,7 +341,6 @@ try:
                     'calib_n':      0,
                     'calib_total':  config.CALIB_COUNT,
                 })
-                # 구체: calib_pos 위치 + 방향 (하드코딩, 항상 표시)
                 tv._teleop_active.value = 1 if config.USE_SPHERE else 0
                 tv.l_palm_quest = CALIB_L_POS.copy()
                 tv.r_palm_quest = CALIB_R_POS.copy()
@@ -383,7 +349,7 @@ try:
                 if wait_elapsed < 3.0:
                     time.sleep(1.0 / config.CONTROL_HZ)
                     continue
-                _calib_wait_start = None  # 대기 완료
+                _calib_wait_start = None
 
             r_rot = right_mat[:3, :3]
             l_rot = left_mat[:3, :3]
@@ -393,20 +359,18 @@ try:
                 calib_samples_R_rot.append(r_rot.copy())
                 calib_samples_L_rot.append(l_rot.copy())
 
-            # 오버레이 업데이트
             ros.overlay.update({
-                'state':      'CALIBRATING',
-                'calib_wait': 0.0,
-                'calib_n':    len(calib_samples_R),
-                'calib_total': config.CALIB_COUNT,
+                'state':       'CALIBRATING',
+                'calib_wait':   0.0,
+                'calib_n':      len(calib_samples_R),
+                'calib_total':  config.CALIB_COUNT,
             })
-            # 구체: calib_pos 위치 + 방향 (수집 중에도 유지, 하드코딩)
             tv._teleop_active.value = 1 if config.USE_SPHERE else 0
             tv.l_palm_quest = CALIB_L_POS.copy()
             tv.r_palm_quest = CALIB_R_POS.copy()
             tv.l_palm_dir   = CALIB_L_DIR.copy()
             tv.r_palm_dir   = CALIB_R_DIR.copy()
-            # 진행상황 0.5초마다 출력
+
             if time.time() - _last_status_time > STATUS_INTERVAL:
                 print(f"  📐 캘리브 수집 중 ({len(calib_samples_R)}/{config.CALIB_COUNT})")
                 _last_status_time = time.time()
@@ -433,67 +397,9 @@ try:
                 }
                 with open(config.CALIB_PATH, 'w') as f:
                     json.dump(calib_data, f)
-                print(f"✅ 팔 캘리브 완료  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
+                print(f"✅ 캘리브 완료  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
                 beep('calib_done')
-                if config.USE_FINGER:
-                    teleop_state = TeleopState.CALIBRATING_FINGERS
-                else:
-                    print("🔄 SYNCING 시작")
-                    teleop_state = TeleopState.SYNCING
-
-            time.sleep(1.0 / config.CONTROL_HZ)
-            continue
-
-
-        # ══════════════════════════════════════════════════
-        # 상태: CALIBRATING_FINGERS
-        # ══════════════════════════════════════════════════
-        if teleop_state == TeleopState.CALIBRATING_FINGERS:
-            left_lm  = tv.left_landmarks
-            right_lm = tv.right_landmarks
-
-            if not finger_calib_started:
-                print("🤖 손가락 캘리브 자세로 이동 중...")
-                print("   팔꿈치 90° 구부리고, 손바닥이 Quest 카메라를 향하게, 손가락 쭉 펴기!")
-                publish_smooth_move(ros.pub_arm, config.FINGER_CALIB_VALS,
-                                    current_q_for_smooth, duration=2.0,
-                                    label="손가락캘리브자세")
-                ros.publish_hand(FINGER_NEUTRAL)
-                finger_calib_started = True
-                print("⏳ 4초 후 수집 시작...")
-                time.sleep(4.0)
-                continue
-
-            if is_landmark_valid(left_lm) and is_landmark_valid(right_lm):
-                finger_calib_samples_L.append(left_lm.copy())
-                finger_calib_samples_R.append(right_lm.copy())
-
-            ros.overlay.update({
-                'state':        'CALIBRATING_FINGERS',
-                'finger_n':     len(finger_calib_samples_L),
-                'finger_total': config.FINGER_CALIB_COUNT,
-            })
-            if time.time() - _last_status_time > STATUS_INTERVAL:
-                print(f"  🖐️  손가락 캘리브 수집 중 ({len(finger_calib_samples_L)}/{config.FINGER_CALIB_COUNT})")
-                _last_status_time = time.time()
-
-            if (len(finger_calib_samples_L) >= config.FINGER_CALIB_COUNT and
-                    len(finger_calib_samples_R) >= config.FINGER_CALIB_COUNT):
-                avg_L = np.mean(finger_calib_samples_L, axis=0)
-                avg_R = np.mean(finger_calib_samples_R, axis=0)
-                L_calib_left  = compute_finger_calib(avg_L)
-                L_calib_right = compute_finger_calib(avg_R)
-                finger_calib_done = True
-
-                with open(config.FINGER_CALIB_PATH, 'w') as f:
-                    json.dump({
-                        'L_calib_left':  L_calib_left.tolist(),
-                        'L_calib_right': L_calib_right.tolist(),
-                    }, f)
-
-                print(f"✅ 손가락 캘리브 완료  L{(L_calib_left*1000).round(1)}mm  R{(L_calib_right*1000).round(1)}mm")
-                current_q_for_smooth = list(config.FINGER_CALIB_VALS)
-                beep('calib_done')
+                print("🔄 SYNCING 시작")
                 teleop_state = TeleopState.SYNCING
 
             time.sleep(1.0 / config.CONTROL_HZ)
@@ -558,16 +464,13 @@ try:
         # ══════════════════════════════════════════════════
         if teleop_state == TeleopState.SYNCING:
 
-            # USE_ARM=False → 싱크 불필요, 즉시 TELEOP 낙하
             if not config.USE_ARM:
                 print("ℹ️  USE_ARM=False → SYNCING 스킵, 텔레옵 시작!")
                 teleop_state = TeleopState.TELEOP
                 beep('teleop_start' if _first_teleop_start else 'sync_done')
                 _first_teleop_start = False
-                # continue 없이 바로 아래 TELEOP 블록으로 낙하
 
             else:
-                # ── 타겟 계산 (첫 진입 or tracking_lost 직후) ──
                 if sync_target_q is None or tracking_lost:
                     q = ros.get_current_q()
                     q_ref_current = q.copy()
@@ -682,7 +585,7 @@ try:
             q = compute_ik(model, data, R_palm_id, r_target, q,
                            q_ref=q_ref_current, q_init=q_init, joint_mask=R_joint_mask)
 
-            # 3-1. FK → 실제 손바닥 위치 + IK 오차 계산 (오버레이용)
+            # 4. FK → 실제 손바닥 위치 + IK 오차 (오버레이용)
             pin.forwardKinematics(model, data, q)
             pin.updateFramePlacements(model, data)
             l_actual = data.oMf[L_palm_id].translation.copy()
@@ -690,7 +593,7 @@ try:
             l_err    = float(np.linalg.norm(l_actual - l_target))
             r_err    = float(np.linalg.norm(r_actual - r_target))
 
-            # 4. 스무딩
+            # 5. 스무딩
             l_wrist_yaw_filt = wrist_filter_l.filter(np.array([float(l_wrist_yaw)]))[0]
             r_wrist_yaw_filt = wrist_filter_r.filter(np.array([float(r_wrist_yaw)]))[0]
 
@@ -714,7 +617,7 @@ try:
             cmd_data[10] = neck_filt[0]
             cmd_data[11] = neck_filt[1]
 
-            # 5. 안전 체크
+            # 6. 안전 체크
             if np.any(np.isnan(cmd_data)) or np.any(np.isinf(cmd_data)):
                 print("⚠️  IK 발산 → FREEZE")
                 q = ros.get_current_q()
@@ -727,64 +630,47 @@ try:
                 time.sleep(1.0 / config.CONTROL_HZ)
                 continue
 
-            # 6. 팔/목 publish
+            # 7. 팔/목 publish
             current_q_for_smooth = cmd_data.copy()
             ros.publish_arm(cmd_data)
 
         else:
-            # USE_ARM=False: 현재 자세 유지 (publish 없음)
             cmd_data = current_q_for_smooth.copy()
             l_err = r_err = 0.0
 
-        # 7. 손가락 publish
+        # 8. 손가락 publish
         if config.USE_FINGER:
             left_lm  = tv.left_landmarks
             right_lm = tv.right_landmarks
             l_valid  = is_landmark_valid(left_lm)
             r_valid  = is_landmark_valid(right_lm)
 
-            # ──────────────────────────────────────────────────────
-            # 🔧 디버그 모드: 실제 굽힘각 출력
-            #    config.py 에서  FINGER_DEBUG = True  로 켜고 끄세요.
-            #    사용법:
-            #      1. config.py에서 FINGER_DEBUG = True
-            #      2. 손을 완전히 펴고 → 출력값 메모 (→ ANGLE_OPEN)
-            #      3. 손을 꽉 쥐고   → 출력값 메모 (→ ANGLE_CLOSE)
-            #      4. finger_mapping.py 상단의 ANGLE_OPEN / ANGLE_CLOSE 교체
-            #      5. config.py에서 FINGER_DEBUG = False
-            # ──────────────────────────────────────────────────────
+            # 디버그 모드: 실제 굽힘각 출력 (FINGER_DEBUG = True 시 활성화)
             if config.FINGER_DEBUG and time.time() - _last_status_time > 0.3:
                 from finger_mapping import FINGER_ANGLE_POINTS, _flex_angle
-                # 로봇 손가락 이름 (4번은 소지→로봇약지 매핑)
                 finger_names = {1: "엄지", 2: "검지", 3: "중지", 4: "약지(로봇)←소지"}
-                # 소지 원본 인덱스 (FINGER_ANGLE_POINTS와 무관하게 항상 표시)
-                PINKY_RAW = (0, 21, 24)   # Wrist → PinkyMCP → PinkyTip
+                PINKY_RAW = (0, 21, 24)
 
                 def _fmt(lm, side):
                     parts = []
                     for f in range(1, 5):
                         p = FINGER_ANGLE_POINTS[f]
                         parts.append(f"{side} {finger_names[f]}:{_flex_angle(lm[p[0]], lm[p[1]], lm[p[2]]):.0f}°")
-                    # 소지 원본값 항상 표시
                     pinky_flex = _flex_angle(lm[PINKY_RAW[0]], lm[PINKY_RAW[1]], lm[PINKY_RAW[2]])
                     parts.append(f"{side} 소지(Quest):{pinky_flex:.0f}°")
                     return parts
 
-                if l_valid:
-                    print("  [FLEX]", "  ".join(_fmt(left_lm,  "L")))
-                if r_valid:
-                    print("  [FLEX]", "  ".join(_fmt(right_lm, "R")))
+                if l_valid: print("  [FLEX]", "  ".join(_fmt(left_lm,  "L")))
+                if r_valid: print("  [FLEX]", "  ".join(_fmt(right_lm, "R")))
 
             if l_valid or r_valid:
                 _left_lm  = left_lm  if l_valid else np.zeros((25, 3))
                 _right_lm = right_lm if r_valid else np.zeros((25, 3))
 
-                raw_finger_cmd = build_hand_cmd(_left_lm, _right_lm, L_calib_left, L_calib_right)
+                raw_finger_cmd = build_hand_cmd(_left_lm, _right_lm)
 
-                if not l_valid:
-                    raw_finger_cmd[:8]  = FINGER_NEUTRAL[:8]
-                if not r_valid:
-                    raw_finger_cmd[8:] = FINGER_NEUTRAL[8:]
+                if not l_valid: raw_finger_cmd[:8]  = FINGER_NEUTRAL[:8]
+                if not r_valid: raw_finger_cmd[8:] = FINGER_NEUTRAL[8:]
 
                 finger_cmd = finger_filter.filter(raw_finger_cmd)
                 if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
@@ -794,10 +680,9 @@ try:
             else:
                 ros.publish_hand(FINGER_NEUTRAL)
         else:
-            # USE_FINGER=False: 항상 중립 유지
             ros.publish_hand(FINGER_NEUTRAL)
 
-        # 8. Hz 출력 (0.5초마다) + 오버레이 갱신
+        # 9. Hz 출력 + 오버레이 갱신
         elapsed   = time.time() - loop_start
         loop_time = max(elapsed, 1e-6)
         time.sleep(max(0, 1.0 / config.CONTROL_HZ - elapsed))
@@ -811,11 +696,10 @@ try:
         })
         if time.time() - _last_status_time > STATUS_INTERVAL:
             arm_status = f"L err={l_err*100:.1f}cm  R err={r_err*100:.1f}cm" if config.USE_ARM else "USE_ARM=OFF"
-            finger_status = "USE_FINGER=ON" if config.USE_FINGER else "USE_FINGER=OFF"
+            finger_status = "FINGER=ON" if config.USE_FINGER else "FINGER=OFF"
             print(f"  [TELEOP] {1/loop_time:.1f}Hz | {arm_status} | {finger_status}")
             if config.USE_ARM:
                 print(f"  [WRIST] l={np.degrees(l_wrist_yaw):.1f}°  r={np.degrees(r_wrist_yaw):.1f}°")
-                print(f"  [DIR_L] {tv.l_palm_dir.round(3)}  [DIR_R] {tv.r_palm_dir.round(3)}")
             _last_status_time = time.time()
 
 
