@@ -171,7 +171,14 @@ if os.path.exists(config.CALIB_PATH):
     print(f"✅ 캘리브 로드 완료  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
     print(f"   WAITING 구체  L{WAITING_L_POS.round(3)}  R{WAITING_R_POS.round(3)}")
 else:
-    print("📐 캘리브 없음 → Quest 접속 후 팔 앞으로 쭉 뻗어!")
+    if not config.USE_ARM:
+        # 팔 트래킹 OFF → 캘리브 불필요, 더미값으로 초기화
+        quest_L_init = np.zeros(3)
+        quest_R_init = np.zeros(3)
+        calibrated   = True
+        print("ℹ️  USE_ARM=False → 팔 캘리브 스킵")
+    else:
+        print("📐 캘리브 없음 → Quest 접속 후 팔 앞으로 쭉 뻗어!")
 
 # v4 각도 방식: finger_calib.json 불필요 → 로드 스킵
 print("✅ 손가락 캘리브 스킵 (v4 각도 방식: 캘리브 불필요)")
@@ -252,7 +259,7 @@ try:
             print(f"[Quest] {tv.hand_hz:.1f}Hz | 업데이트율 {100*_l_update_count/_frame_count:.0f}%")
 
         # ── 트래킹 소실 감지 ───────────────────────────────
-        if np.allclose(r_raw, 0):
+        if config.USE_ARM and np.allclose(r_raw, 0):
             if teleop_state == TeleopState.TELEOP:
                 print("🚨 트래킹 소실 → FREEZE")
                 teleop_state      = TeleopState.FREEZE
@@ -319,7 +326,7 @@ try:
             # 카운트다운 완료 → 다음 상태로
             _countdown_start = None
             ros.overlay['countdown'] = 0
-            if not calibrated:
+            if not calibrated and config.USE_ARM:
                 print("📐 CALIBRATING 시작 - 팔 앞으로 쭉 뻗어!")
                 teleop_state = TeleopState.CALIBRATING
                 beep('calib_start')
@@ -332,7 +339,7 @@ try:
                 teleop_state = TeleopState.SYNCING
 
         # ── 점프 감지 (TELEOP) ─────────────────────────────
-        if teleop_state == TeleopState.TELEOP and prev_r_raw is not None:
+        if config.USE_ARM and teleop_state == TeleopState.TELEOP and prev_r_raw is not None:
             r_jump = np.linalg.norm(r_raw - prev_r_raw)
             l_jump = np.linalg.norm(l_raw - prev_l_raw) if prev_l_raw is not None else 0
             if r_jump > config.JUMP_THRESHOLD or l_jump > config.JUMP_THRESHOLD:
@@ -494,32 +501,33 @@ try:
 
 
         # ── 공통: 목/손목 계산 ─────────────────────────────
-        head = tv.head_matrix
-        if not np.allclose(head, 0):
-            head_rot = head[:3, :3]
-            R_rel = quest_neck_rot_init.T @ head_rot
-            qx, qy, qz, qw = Rot.from_matrix(R_rel).as_quat()
-            if qw < 0:
-                qx, qy, qz, qw = -qx, -qy, -qz, -qw
-            neck_yaw   = np.clip(config.NECK_SCALE * 2.0 * np.arctan2(qy, qw),
-                                 model.lowerPositionLimit[joint_ids[10]],
-                                 model.upperPositionLimit[joint_ids[10]])
-            neck_pitch = np.clip(config.NECK_SCALE * -2.0 * np.arctan2(qx, qw),
-                                 model.lowerPositionLimit[joint_ids[11]],
-                                 model.upperPositionLimit[joint_ids[11]])
-        else:
-            neck_yaw, neck_pitch = 0.0, 0.0
+        if config.USE_ARM:
+            head = tv.head_matrix
+            if not np.allclose(head, 0):
+                head_rot = head[:3, :3]
+                R_rel = quest_neck_rot_init.T @ head_rot
+                qx, qy, qz, qw = Rot.from_matrix(R_rel).as_quat()
+                if qw < 0:
+                    qx, qy, qz, qw = -qx, -qy, -qz, -qw
+                neck_yaw   = np.clip(config.NECK_SCALE * 2.0 * np.arctan2(qy, qw),
+                                     model.lowerPositionLimit[joint_ids[10]],
+                                     model.upperPositionLimit[joint_ids[10]])
+                neck_pitch = np.clip(config.NECK_SCALE * -2.0 * np.arctan2(qx, qw),
+                                     model.lowerPositionLimit[joint_ids[11]],
+                                     model.upperPositionLimit[joint_ids[11]])
+            else:
+                neck_yaw, neck_pitch = 0.0, 0.0
 
-        r_rot         = right_mat[:3, :3]
-        l_rot         = left_mat[:3, :3]
-        r_wrist_delta = extract_wrist_twist_z(r_rot, quest_R_wrist_rot_init)
-        l_wrist_delta = extract_wrist_twist_z(l_rot, quest_L_wrist_rot_init)
-        r_wrist_yaw   = np.clip(config.CALIB_POS[9] + config.WRIST_SCALE * r_wrist_delta,
-                                model.lowerPositionLimit[joint_ids[9]],
-                                model.upperPositionLimit[joint_ids[9]])
-        l_wrist_yaw   = np.clip(config.CALIB_POS[4] + config.WRIST_SCALE * l_wrist_delta,
-                                model.lowerPositionLimit[joint_ids[4]],
-                                model.upperPositionLimit[joint_ids[4]])
+            r_rot         = right_mat[:3, :3]
+            l_rot         = left_mat[:3, :3]
+            r_wrist_delta = extract_wrist_twist_z(r_rot, quest_R_wrist_rot_init)
+            l_wrist_delta = extract_wrist_twist_z(l_rot, quest_L_wrist_rot_init)
+            r_wrist_yaw   = np.clip(config.CALIB_POS[9] + config.WRIST_SCALE * r_wrist_delta,
+                                    model.lowerPositionLimit[joint_ids[9]],
+                                    model.upperPositionLimit[joint_ids[9]])
+            l_wrist_yaw   = np.clip(config.CALIB_POS[4] + config.WRIST_SCALE * l_wrist_delta,
+                                    model.lowerPositionLimit[joint_ids[4]],
+                                    model.upperPositionLimit[joint_ids[4]])
 
 
         # ══════════════════════════════════════════════════
@@ -550,195 +558,243 @@ try:
         # ══════════════════════════════════════════════════
         if teleop_state == TeleopState.SYNCING:
 
-            if sync_target_q is None or tracking_lost:
-                q = ros.get_current_q()
-                q_ref_current = q.copy()
-
-                l_sync_target, r_sync_target = calc_target_from_calib(
-                    l_raw, r_raw,
-                    quest_L_init, quest_R_init,
-                    robot_L_init, robot_R_init
-                )
-                q_sync = compute_ik(model, data, L_palm_id, l_sync_target, q,
-                                    q_ref=q_ref_current, q_init=q_init,
-                                    joint_mask=L_joint_mask)
-                q_sync = compute_ik(model, data, R_palm_id, r_sync_target, q_sync,
-                                    q_ref=q_ref_current, q_init=q_init,
-                                    joint_mask=R_joint_mask)
-
-                q_sync_cmd       = [float(q_sync[idx]) for idx in joint_ids]
-                q_sync_cmd[4]    = float(l_wrist_yaw)
-                q_sync_cmd[9]    = float(r_wrist_yaw)
-                q_sync_cmd[10]   = float(neck_yaw)
-                q_sync_cmd[11]   = float(neck_pitch)
-
-                sync_target_q   = q_sync_cmd
-                sync_start_q    = [float(q[idx]) for idx in joint_ids]
-                sync_start_time = time.time()
-                tracking_lost   = False
-
-                arm_filter.reset(q)
-                wrist_filter_l.reset(np.array([float(l_wrist_yaw)]))
-                wrist_filter_r.reset(np.array([float(r_wrist_yaw)]))
-                quest_pos_filter_l.reset(l_raw)
-                quest_pos_filter_r.reset(r_raw)
-                neck_filter.reset(np.array([float(neck_yaw), float(neck_pitch)]))
-
-                print(f"🎯 싱크 타겟  L{l_sync_target.round(3)}  R{r_sync_target.round(3)}")
-
-            elapsed_sync    = time.time() - sync_start_time
-            fraction        = min(elapsed_sync / config.SYNC_DURATION, 1.0)
-            fraction_smooth = fraction * fraction * (3 - 2 * fraction)
-            cmd_data        = [s + (t - s) * fraction_smooth
-                               for s, t in zip(sync_start_q, sync_target_q)]
-
-            q_actual  = ros.get_current_q()
-            joint_err = max(abs(float(q_actual[idx]) - t)
-                            for idx, t in zip(joint_ids[:8], sync_target_q[:8]))
-            pin.forwardKinematics(model, data, q_actual)
-            pin.updateFramePlacements(model, data)
-            l_pos_err = np.linalg.norm(data.oMf[L_palm_id].translation - l_sync_target)
-            r_pos_err = np.linalg.norm(data.oMf[R_palm_id].translation - r_sync_target)
-
-            # 0.5초마다 진행상황 출력
-            if time.time() - _last_status_time > STATUS_INTERVAL:
-                print(f"  🔄 싱크 {fraction*100:.0f}% | 관절 {joint_err:.3f}rad | 위치 L{l_pos_err:.3f} R{r_pos_err:.3f}m")
-                _last_status_time = time.time()
-
-            ros.overlay.update({
-                'state':        'SYNCING',
-                'sync_elapsed': elapsed_sync,
-                'sync_timeout': config.SYNC_TIMEOUT,
-            })
-
-            sync_done = (
-                (joint_err  < config.SYNC_JOINT_THRESH and
-                 l_pos_err  < config.SYNC_POSITION_THRESH and
-                 r_pos_err  < config.SYNC_POSITION_THRESH)
-                or fraction >= 1.0
-                or elapsed_sync >= config.SYNC_TIMEOUT
-            )
-
-            if sync_done:
-                print("✅ 싱크 완료 → 텔레옵 시작!" if fraction < 1.0
-                      else "⚠️  싱크 타임아웃 → 텔레옵 강제 시작")
-                q = ros.get_current_q()
-                q_ref_current = q.copy()
-                arm_filter.reset(q)
-                sync_target_q = None
-                teleop_state  = TeleopState.TELEOP
+            # USE_ARM=False → 싱크 불필요, 즉시 TELEOP 낙하
+            if not config.USE_ARM:
+                print("ℹ️  USE_ARM=False → SYNCING 스킵, 텔레옵 시작!")
+                teleop_state = TeleopState.TELEOP
                 beep('teleop_start' if _first_teleop_start else 'sync_done')
                 _first_teleop_start = False
+                # continue 없이 바로 아래 TELEOP 블록으로 낙하
 
-            if np.any(np.isnan(cmd_data)):
-                time.sleep(1.0 / config.CONTROL_HZ)
+            else:
+                # ── 타겟 계산 (첫 진입 or tracking_lost 직후) ──
+                if sync_target_q is None or tracking_lost:
+                    q = ros.get_current_q()
+                    q_ref_current = q.copy()
+
+                    l_sync_target, r_sync_target = calc_target_from_calib(
+                        l_raw, r_raw,
+                        quest_L_init, quest_R_init,
+                        robot_L_init, robot_R_init
+                    )
+                    q_sync = compute_ik(model, data, L_palm_id, l_sync_target, q,
+                                        q_ref=q_ref_current, q_init=q_init,
+                                        joint_mask=L_joint_mask)
+                    q_sync = compute_ik(model, data, R_palm_id, r_sync_target, q_sync,
+                                        q_ref=q_ref_current, q_init=q_init,
+                                        joint_mask=R_joint_mask)
+
+                    q_sync_cmd       = [float(q_sync[idx]) for idx in joint_ids]
+                    q_sync_cmd[4]    = float(l_wrist_yaw)
+                    q_sync_cmd[9]    = float(r_wrist_yaw)
+                    q_sync_cmd[10]   = float(neck_yaw)
+                    q_sync_cmd[11]   = float(neck_pitch)
+
+                    sync_target_q   = q_sync_cmd
+                    sync_start_q    = [float(q[idx]) for idx in joint_ids]
+                    sync_start_time = time.time()
+                    tracking_lost   = False
+
+                    arm_filter.reset(q)
+                    wrist_filter_l.reset(np.array([float(l_wrist_yaw)]))
+                    wrist_filter_r.reset(np.array([float(r_wrist_yaw)]))
+                    quest_pos_filter_l.reset(l_raw)
+                    quest_pos_filter_r.reset(r_raw)
+                    neck_filter.reset(np.array([float(neck_yaw), float(neck_pitch)]))
+
+                    print(f"🎯 싱크 타겟  L{l_sync_target.round(3)}  R{r_sync_target.round(3)}")
+
+                elapsed_sync    = time.time() - sync_start_time
+                fraction        = min(elapsed_sync / config.SYNC_DURATION, 1.0)
+                fraction_smooth = fraction * fraction * (3 - 2 * fraction)
+                cmd_data        = [s + (t - s) * fraction_smooth
+                                   for s, t in zip(sync_start_q, sync_target_q)]
+
+                q_actual  = ros.get_current_q()
+                joint_err = max(abs(float(q_actual[idx]) - t)
+                                for idx, t in zip(joint_ids[:8], sync_target_q[:8]))
+                pin.forwardKinematics(model, data, q_actual)
+                pin.updateFramePlacements(model, data)
+                l_pos_err = np.linalg.norm(data.oMf[L_palm_id].translation - l_sync_target)
+                r_pos_err = np.linalg.norm(data.oMf[R_palm_id].translation - r_sync_target)
+
+                if time.time() - _last_status_time > STATUS_INTERVAL:
+                    print(f"  🔄 싱크 {fraction*100:.0f}% | 관절 {joint_err:.3f}rad | 위치 L{l_pos_err:.3f} R{r_pos_err:.3f}m")
+                    _last_status_time = time.time()
+
+                ros.overlay.update({
+                    'state':        'SYNCING',
+                    'sync_elapsed': elapsed_sync,
+                    'sync_timeout': config.SYNC_TIMEOUT,
+                })
+
+                sync_done = (
+                    (joint_err  < config.SYNC_JOINT_THRESH and
+                     l_pos_err  < config.SYNC_POSITION_THRESH and
+                     r_pos_err  < config.SYNC_POSITION_THRESH)
+                    or fraction >= 1.0
+                    or elapsed_sync >= config.SYNC_TIMEOUT
+                )
+
+                if sync_done:
+                    print("✅ 싱크 완료 → 텔레옵 시작!" if fraction < 1.0
+                          else "⚠️  싱크 타임아웃 → 텔레옵 강제 시작")
+                    q = ros.get_current_q()
+                    q_ref_current = q.copy()
+                    arm_filter.reset(q)
+                    sync_target_q = None
+                    teleop_state  = TeleopState.TELEOP
+                    beep('teleop_start' if _first_teleop_start else 'sync_done')
+                    _first_teleop_start = False
+
+                if np.any(np.isnan(cmd_data)):
+                    time.sleep(1.0 / config.CONTROL_HZ)
+                    continue
+
+                current_q_for_smooth = cmd_data.copy()
+                ros.publish_arm(cmd_data)
+                ros.publish_hand(FINGER_NEUTRAL)
+
+                elapsed = time.time() - loop_start
+                time.sleep(max(0, 1.0 / config.CONTROL_HZ - elapsed))
                 continue
-
-            current_q_for_smooth = cmd_data.copy()
-            ros.publish_arm(cmd_data)
-            ros.publish_hand(FINGER_NEUTRAL)
-
-            elapsed = time.time() - loop_start
-            time.sleep(max(0, 1.0 / config.CONTROL_HZ - elapsed))
-            continue
 
 
         # ══════════════════════════════════════════════════
         # 상태: TELEOP
         # ══════════════════════════════════════════════════
 
-        # 1. 입력 필터링
-        l_filt = quest_pos_filter_l.filter(l_raw)
-        r_filt = quest_pos_filter_r.filter(r_raw)
+        if config.USE_ARM:
+            # 1. 입력 필터링
+            l_filt = quest_pos_filter_l.filter(l_raw)
+            r_filt = quest_pos_filter_r.filter(r_raw)
 
-        # 2. 좌표 변환
-        l_target, r_target = calc_target_from_calib(
-            l_filt, r_filt,
-            quest_L_init, quest_R_init,
-            robot_L_init, robot_R_init
-        )
+            # 2. 좌표 변환
+            l_target, r_target = calc_target_from_calib(
+                l_filt, r_filt,
+                quest_L_init, quest_R_init,
+                robot_L_init, robot_R_init
+            )
 
-        # 3. IK
-        q = compute_ik(model, data, L_palm_id, l_target, q,
-                       q_ref=q_ref_current, q_init=q_init, joint_mask=L_joint_mask)
-        q = compute_ik(model, data, R_palm_id, r_target, q,
-                       q_ref=q_ref_current, q_init=q_init, joint_mask=R_joint_mask)
+            # 3. IK
+            q = compute_ik(model, data, L_palm_id, l_target, q,
+                           q_ref=q_ref_current, q_init=q_init, joint_mask=L_joint_mask)
+            q = compute_ik(model, data, R_palm_id, r_target, q,
+                           q_ref=q_ref_current, q_init=q_init, joint_mask=R_joint_mask)
 
-        # 3-1. FK → 실제 손바닥 위치 + IK 오차 계산 (오버레이용)
-        pin.forwardKinematics(model, data, q)
-        pin.updateFramePlacements(model, data)
-        l_actual = data.oMf[L_palm_id].translation.copy()
-        r_actual = data.oMf[R_palm_id].translation.copy()
-        l_err    = float(np.linalg.norm(l_actual - l_target))
-        r_err    = float(np.linalg.norm(r_actual - r_target))
+            # 3-1. FK → 실제 손바닥 위치 + IK 오차 계산 (오버레이용)
+            pin.forwardKinematics(model, data, q)
+            pin.updateFramePlacements(model, data)
+            l_actual = data.oMf[L_palm_id].translation.copy()
+            r_actual = data.oMf[R_palm_id].translation.copy()
+            l_err    = float(np.linalg.norm(l_actual - l_target))
+            r_err    = float(np.linalg.norm(r_actual - r_target))
 
-        # 4. 스무딩 (wrist는 방향 시각화에도 쓰이므로 먼저 계산)
-        l_wrist_yaw_filt = wrist_filter_l.filter(np.array([float(l_wrist_yaw)]))[0]
-        r_wrist_yaw_filt = wrist_filter_r.filter(np.array([float(r_wrist_yaw)]))[0]
+            # 4. 스무딩
+            l_wrist_yaw_filt = wrist_filter_l.filter(np.array([float(l_wrist_yaw)]))[0]
+            r_wrist_yaw_filt = wrist_filter_r.filter(np.array([float(r_wrist_yaw)]))[0]
 
-        # wrist_yaw 필터 후 값으로 FK → 방향 벡터 계산 (로봇과 동일한 값 사용)
-        q_vis = q.copy()
-        q_vis[joint_ids[4]] = l_wrist_yaw_filt
-        q_vis[joint_ids[9]] = r_wrist_yaw_filt
-        pin.forwardKinematics(model, data, q_vis)
-        pin.updateFramePlacements(model, data)
+            q_vis = q.copy()
+            q_vis[joint_ids[4]] = l_wrist_yaw_filt
+            q_vis[joint_ids[9]] = r_wrist_yaw_filt
+            pin.forwardKinematics(model, data, q_vis)
+            pin.updateFramePlacements(model, data)
 
-        tv._teleop_active.value = 1 if config.USE_SPHERE else 0
-        tv.l_palm_quest = robot_to_quest(l_actual, robot_L_init, quest_L_init)
-        tv.r_palm_quest = robot_to_quest(r_actual, robot_R_init, quest_R_init)
-        tv.l_palm_dir   = robot_dir_to_quest(data.oMf[L_palm_id].rotation, 'L')
-        tv.r_palm_dir   = robot_dir_to_quest(data.oMf[R_palm_id].rotation, 'R')
+            tv._teleop_active.value = 1 if config.USE_SPHERE else 0
+            tv.l_palm_quest = robot_to_quest(l_actual, robot_L_init, quest_L_init)
+            tv.r_palm_quest = robot_to_quest(r_actual, robot_R_init, quest_R_init)
+            tv.l_palm_dir   = robot_dir_to_quest(data.oMf[L_palm_id].rotation, 'L')
+            tv.r_palm_dir   = robot_dir_to_quest(data.oMf[R_palm_id].rotation, 'R')
 
-        q        = arm_filter.filter(q)
-        cmd_data = [float(q[idx]) for idx in joint_ids]
-        cmd_data[4]  = l_wrist_yaw_filt
-        cmd_data[9]  = r_wrist_yaw_filt
-        neck_filt    = neck_filter.filter(np.array([float(neck_yaw), float(neck_pitch)]))
-        cmd_data[10] = neck_filt[0]
-        cmd_data[11] = neck_filt[1]
+            q        = arm_filter.filter(q)
+            cmd_data = [float(q[idx]) for idx in joint_ids]
+            cmd_data[4]  = l_wrist_yaw_filt
+            cmd_data[9]  = r_wrist_yaw_filt
+            neck_filt    = neck_filter.filter(np.array([float(neck_yaw), float(neck_pitch)]))
+            cmd_data[10] = neck_filt[0]
+            cmd_data[11] = neck_filt[1]
 
-        # 5. 안전 체크
-        if np.any(np.isnan(cmd_data)) or np.any(np.isinf(cmd_data)):
-            print("⚠️  IK 발산 → FREEZE")
-            q = ros.get_current_q()
-            arm_filter.reset(q)
-            sync_target_q     = None
-            teleop_state      = TeleopState.FREEZE
-            freeze_start_time = time.time()
-            tracking_lost     = True
-            beep('warn')
-            time.sleep(1.0 / config.CONTROL_HZ)
-            continue
+            # 5. 안전 체크
+            if np.any(np.isnan(cmd_data)) or np.any(np.isinf(cmd_data)):
+                print("⚠️  IK 발산 → FREEZE")
+                q = ros.get_current_q()
+                arm_filter.reset(q)
+                sync_target_q     = None
+                teleop_state      = TeleopState.FREEZE
+                freeze_start_time = time.time()
+                tracking_lost     = True
+                beep('warn')
+                time.sleep(1.0 / config.CONTROL_HZ)
+                continue
 
-        # 6. 팔/목 publish
-        current_q_for_smooth = cmd_data.copy()
-        ros.publish_arm(cmd_data)
+            # 6. 팔/목 publish
+            current_q_for_smooth = cmd_data.copy()
+            ros.publish_arm(cmd_data)
 
-        # 7. 손가락 publish (한 손만 보여도 동작, 안 보이는 손은 NEUTRAL 유지)
-        left_lm  = tv.left_landmarks
-        right_lm = tv.right_landmarks
-        l_valid  = is_landmark_valid(left_lm)
-        r_valid  = is_landmark_valid(right_lm)
+        else:
+            # USE_ARM=False: 현재 자세 유지 (publish 없음)
+            cmd_data = current_q_for_smooth.copy()
+            l_err = r_err = 0.0
 
-        if l_valid or r_valid:
-            # 유효하지 않은 쪽은 이전 명령 유지를 위해 NEUTRAL로 대체
-            _left_lm  = left_lm  if l_valid else np.zeros((25, 3))
-            _right_lm = right_lm if r_valid else np.zeros((25, 3))
+        # 7. 손가락 publish
+        if config.USE_FINGER:
+            left_lm  = tv.left_landmarks
+            right_lm = tv.right_landmarks
+            l_valid  = is_landmark_valid(left_lm)
+            r_valid  = is_landmark_valid(right_lm)
 
-            raw_finger_cmd = build_hand_cmd(_left_lm, _right_lm, L_calib_left, L_calib_right)
+            # ──────────────────────────────────────────────────────
+            # 🔧 디버그 모드: 실제 굽힘각 출력
+            #    config.py 에서  FINGER_DEBUG = True  로 켜고 끄세요.
+            #    사용법:
+            #      1. config.py에서 FINGER_DEBUG = True
+            #      2. 손을 완전히 펴고 → 출력값 메모 (→ ANGLE_OPEN)
+            #      3. 손을 꽉 쥐고   → 출력값 메모 (→ ANGLE_CLOSE)
+            #      4. finger_mapping.py 상단의 ANGLE_OPEN / ANGLE_CLOSE 교체
+            #      5. config.py에서 FINGER_DEBUG = False
+            # ──────────────────────────────────────────────────────
+            if config.FINGER_DEBUG and time.time() - _last_status_time > 0.3:
+                from finger_mapping import FINGER_ANGLE_POINTS, _flex_angle
+                # 로봇 손가락 이름 (4번은 소지→로봇약지 매핑)
+                finger_names = {1: "엄지", 2: "검지", 3: "중지", 4: "약지(로봇)←소지"}
+                # 소지 원본 인덱스 (FINGER_ANGLE_POINTS와 무관하게 항상 표시)
+                PINKY_RAW = (0, 21, 24)   # Wrist → PinkyMCP → PinkyTip
 
-            # 유효하지 않은 손 쪽(8개)은 NEUTRAL로 덮어쓰기
-            if not l_valid:
-                raw_finger_cmd[:8]  = FINGER_NEUTRAL[:8]
-            if not r_valid:
-                raw_finger_cmd[8:] = FINGER_NEUTRAL[8:]
+                def _fmt(lm, side):
+                    parts = []
+                    for f in range(1, 5):
+                        p = FINGER_ANGLE_POINTS[f]
+                        parts.append(f"{side} {finger_names[f]}:{_flex_angle(lm[p[0]], lm[p[1]], lm[p[2]]):.0f}°")
+                    # 소지 원본값 항상 표시
+                    pinky_flex = _flex_angle(lm[PINKY_RAW[0]], lm[PINKY_RAW[1]], lm[PINKY_RAW[2]])
+                    parts.append(f"{side} 소지(Quest):{pinky_flex:.0f}°")
+                    return parts
 
-            finger_cmd = finger_filter.filter(raw_finger_cmd)
-            if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
-                ros.publish_hand(finger_cmd.tolist())
+                if l_valid:
+                    print("  [FLEX]", "  ".join(_fmt(left_lm,  "L")))
+                if r_valid:
+                    print("  [FLEX]", "  ".join(_fmt(right_lm, "R")))
+
+            if l_valid or r_valid:
+                _left_lm  = left_lm  if l_valid else np.zeros((25, 3))
+                _right_lm = right_lm if r_valid else np.zeros((25, 3))
+
+                raw_finger_cmd = build_hand_cmd(_left_lm, _right_lm, L_calib_left, L_calib_right)
+
+                if not l_valid:
+                    raw_finger_cmd[:8]  = FINGER_NEUTRAL[:8]
+                if not r_valid:
+                    raw_finger_cmd[8:] = FINGER_NEUTRAL[8:]
+
+                finger_cmd = finger_filter.filter(raw_finger_cmd)
+                if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
+                    ros.publish_hand(finger_cmd.tolist())
+                else:
+                    ros.publish_hand(FINGER_NEUTRAL)
             else:
                 ros.publish_hand(FINGER_NEUTRAL)
         else:
+            # USE_FINGER=False: 항상 중립 유지
             ros.publish_hand(FINGER_NEUTRAL)
 
         # 8. Hz 출력 (0.5초마다) + 오버레이 갱신
@@ -754,9 +810,12 @@ try:
             'r_joints': cmd_data[5:10],
         })
         if time.time() - _last_status_time > STATUS_INTERVAL:
-            print(f"  [TELEOP] {1/loop_time:.1f}Hz | L err={l_err*100:.1f}cm  R err={r_err*100:.1f}cm")
-            print(f"  [WRIST] l={np.degrees(l_wrist_yaw):.1f}°  r={np.degrees(r_wrist_yaw):.1f}°")
-            print(f"  [DIR_L] {tv.l_palm_dir.round(3)}  [DIR_R] {tv.r_palm_dir.round(3)}")
+            arm_status = f"L err={l_err*100:.1f}cm  R err={r_err*100:.1f}cm" if config.USE_ARM else "USE_ARM=OFF"
+            finger_status = "USE_FINGER=ON" if config.USE_FINGER else "USE_FINGER=OFF"
+            print(f"  [TELEOP] {1/loop_time:.1f}Hz | {arm_status} | {finger_status}")
+            if config.USE_ARM:
+                print(f"  [WRIST] l={np.degrees(l_wrist_yaw):.1f}°  r={np.degrees(r_wrist_yaw):.1f}°")
+                print(f"  [DIR_L] {tv.l_palm_dir.round(3)}  [DIR_R] {tv.r_palm_dir.round(3)}")
             _last_status_time = time.time()
 
 

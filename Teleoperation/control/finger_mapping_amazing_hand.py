@@ -14,34 +14,14 @@ finger_mapping.py  — AmazingHand 방식 (3-point 각도 → 선형 매핑)
   4. AA는 AmazingHand 원본과 같이 0으로 고정
      (USE_AA = True 로 바꾸면 손바닥 로컬 프레임 기반 AA 추가 가능)
 
-[Quest landmark 인덱스 — WebXR 25-joint (vuer Hands 컴포넌트 기준)]
-  ※ Meta Quest 3S + vuer는 MediaPipe(21점)가 아닌 WebXR 25관절 체계를 사용함
-
-   0: wrist
-   1: thumb-metacarpal
-   2: thumb-phalanx-proximal  (= MCP)
-   3: thumb-phalanx-distal    (= IP)
-   4: thumb-tip
-   5: index-finger-metacarpal    (손바닥뼈 — 거의 안 움직임)
-   6: index-finger-phalanx-proximal   (= MCP, 너클)
-   7: index-finger-phalanx-intermediate (= PIP)
-   8: index-finger-phalanx-distal      (= DIP)
-   9: index-finger-tip
-  10: middle-finger-metacarpal
-  11: middle-finger-phalanx-proximal   (= MCP)
-  12: middle-finger-phalanx-intermediate
-  13: middle-finger-phalanx-distal
-  14: middle-finger-tip
-  15: ring-finger-metacarpal
-  16: ring-finger-phalanx-proximal     (= MCP)
-  17: ring-finger-phalanx-intermediate
-  18: ring-finger-phalanx-distal
-  19: ring-finger-tip
-  20: pinky-finger-metacarpal
-  21: pinky-finger-phalanx-proximal    (= MCP)
-  22: pinky-finger-phalanx-intermediate
-  23: pinky-finger-phalanx-distal
-  24: pinky-finger-tip
+[Quest landmark 인덱스 — MediaPipe 21-point 기준]
+  0 = Wrist
+  1 = Thumb CMC,  2 = Thumb MCP,  3 = Thumb IP,   4 = Thumb Tip
+  5 = Index MCP,  6 = Index PIP,  7 = Index DIP,  8 = Index Tip
+  9 = Middle MCP, 10= Middle PIP, 11= Middle DIP, 12= Middle Tip
+  13= Ring MCP,   14= Ring PIP,   15= Ring DIP,   16= Ring Tip
+  17= Pinky MCP,  18= Pinky PIP,  19= Pinky DIP,  20= Pinky Tip
+  (vuer로부터 받은 25×3 배열에서 상위 21점이 MediaPipe 순서)
 
 [출력 배열 — 16개 관절각, 단위: rad]
   [L_AA_1, L_FE_1,  L_AA_2, L_FE_2,  L_AA_3, L_FE_3,  L_AA_4, L_FE_4,
@@ -57,33 +37,10 @@ import numpy as np
 # §0  튜닝 파라미터
 # ══════════════════════════════════════════════════════════════════
 
-# ── 손가락별 굽힘각 범위 (실측값 기반) ───────────────────────────
+# ── 굽힘각 범위 (AmazingHand 원본값) ─────────────────────────────
 #   굽힘각 = 180° − 꼭짓점 각도
-#   손가락 번호: 1=엄지, 2=검지, 3=중지, 4=약지
-#
-#   ANGLE_OPEN  : 이 값 이하 → FE = 0     (완전 펼침)
-#   ANGLE_CLOSE : 이 값 이상 → FE = FE_MIN (완전 구부림)
-#
-#   ※ 실측값 (오른손 기준):
-#       펼침: 엄지≈5°  검지≈8°  중지≈5°  약지≈3°
-#       구부림: 엄지≈57° 검지≈133° 중지≈142° 약지≈148°
-#
-#   튜닝 가이드:
-#     - ANGLE_OPEN  을 높이면 펼침 기준이 넓어짐 (더 쉽게 펼침 인식)
-#     - ANGLE_CLOSE 를 낮추면 구부림 기준이 좁아짐 (더 쉽게 구부림 인식)
-#     - 두 값의 차이(범위)가 작을수록 손가락 반응이 민감해짐
-ANGLE_OPEN: dict[int, float] = {
-    1: 14.0,   # 엄지  (펼침 실측 ≈ 14°)
-    2:  7.0,   # 검지  (펼침 실측 ≈  7°)
-    3:  7.0,   # 중지  (펼침 실측 ≈  7°)
-    4:  9.0,   # 소지→로봇약지  (펼침 실측 ≈ 9°)
-}
-ANGLE_CLOSE: dict[int, float] = {
-    1: 53.0,   # 엄지  (구부림 실측 ≈ 53°)
-    2: 130.0,  # 검지  (구부림 실측 ≈ 130°)
-    3: 139.0,  # 중지  (구부림 실측 ≈ 139°)
-    4: 147.0,  # 소지→로봇약지  (구부림 실측 ≈ 147°)
-}
+ANGLE_OPEN  = 60.0    # [deg] 이 이하 → 완전 펼침 (FE = 0)
+ANGLE_CLOSE = 160.0   # [deg] 이 이상 → 완전 구부림 (FE = FE_MIN)
 
 # ── 로봇 FE/AA 관절 한계 (URDF 실측) ─────────────────────────────
 FE_MIN = -1.501    # -86°  (완전 구부림)
@@ -101,27 +58,23 @@ AA_XY_THRESH = 0.15   # 손바닥 평면 투영 벡터 크기가 이 미만이�
 
 
 # ══════════════════════════════════════════════════════════════════
-# §1  Quest landmark 인덱스 정의 (WebXR 25-joint 체계)
+# §1  Quest landmark 인덱스 정의
 # ══════════════════════════════════════════════════════════════════
 
 # 로봇 손가락 번호 → (p1, p2_vertex, p3) 인덱스
 #   굽힘각 = 180° − angle_at(p2) between vec(p1→p2) and vec(p3→p2)
-#
-#   ★ WebXR에서 "metacarpal"(5,10,15,20)은 손바닥뼈 → 거의 안 움직임.
-#     실제 MCP 너클은 "phalanx-proximal"(6,11,16,21)을 사용해야 함.
-#   ★ 엄지는 Wrist(0)→ThumbMCP(2)→ThumbTip(4)로 전체 동작 범위 포착.
 FINGER_ANGLE_POINTS: dict[int, tuple[int, int, int]] = {
-    1: ( 0,  2,  4),   # 엄지:       Wrist(0) → ThumbMCP(2)  → ThumbTip(4)
-    2: ( 0,  6,  9),   # 검지:       Wrist(0) → IndexMCP(6)  → IndexTip(9)
-    3: ( 0, 11, 14),   # 중지:       Wrist(0) → MiddleMCP(11) → MiddleTip(14)
-    4: ( 0, 21, 24),   # 약지←소지: Wrist(0) → PinkyMCP(21) → PinkyTip(24)
+    1: ( 2,  3,  4),   # 엄지: Thumb-CMC → Thumb-MCP → Thumb-Tip
+    2: ( 0,  5,  8),   # 검지: Wrist → Index-MCP → Index-Tip
+    3: ( 0,  9, 12),   # 중지: Wrist → Middle-MCP → Middle-Tip
+    4: ( 0, 13, 16),   # 약지: Wrist → Ring-MCP → Ring-Tip
 }
 
 # AA 계산용 손바닥 프레임 landmark 인덱스
 WRIST_IDX  =  0
-MIDDLE_MCP = 11   # middle-finger-phalanx-proximal (WebXR)
-INDEX_MCP  =  6   # index-finger-phalanx-proximal  (WebXR)
-PINKY_MCP  = 21   # pinky-finger-phalanx-proximal  (WebXR)
+MIDDLE_MCP =  9
+INDEX_MCP  =  5
+PINKY_MCP  = 17
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -165,14 +118,13 @@ def _map_value(x: float, in_min: float, in_max: float,
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
 
-def _flex_to_fe(flex_deg: float, f: int) -> float:
+def _flex_to_fe(flex_deg: float) -> float:
     """
     굽힘각(deg) → FE 관절각(rad).
-    손가락 번호 f (1=엄지~4=약지) 별로 다른 범위 적용.
-    ANGLE_OPEN[f]  → FE_MAX (0 rad, 펼침)
-    ANGLE_CLOSE[f] → FE_MIN (−1.501 rad, 구부림)
+    ANGLE_OPEN  → FE_MAX (0 rad, 펼침)
+    ANGLE_CLOSE → FE_MIN (−1.501 rad, 구부림)
     """
-    fe = _map_value(flex_deg, ANGLE_OPEN[f], ANGLE_CLOSE[f], FE_MAX, FE_MIN)
+    fe = _map_value(flex_deg, ANGLE_OPEN, ANGLE_CLOSE, FE_MAX, FE_MIN)
     return float(np.clip(fe, FE_MIN, FE_MAX))
 
 
@@ -250,7 +202,7 @@ def _retarget_hand(lm: np.ndarray, is_left: bool) -> np.ndarray:
 
         # ── FE: AmazingHand 3-point 각도 방식 ─────────────────
         flex_deg      = _flex_angle(p1, p2, p3)
-        fe            = _flex_to_fe(flex_deg, f)   # 손가락별 범위 적용
+        fe            = _flex_to_fe(flex_deg)
         cmd[(f-1)*2+1] = fe
 
         # ── AA: 원본 AmazingHand=0, USE_AA=True면 계산 ────────
@@ -353,63 +305,48 @@ if __name__ == "__main__":
     print(f"  USE_AA = {USE_AA}")
     print("=" * 60)
 
-    # WebXR 25-joint 기준 테스트 랜드마크 생성
     def _make_lm(palm: float = 0.09) -> np.ndarray:
         lm = np.zeros((25, 3))
-        # WebXR joint layout (주요 관절만 설정)
-        lm[0]  = [ 0.000,  0.000, 0]            # wrist
-        lm[1]  = [ 0.025,  palm * 0.20, 0]      # thumb metacarpal
-        lm[2]  = [ 0.030,  palm * 0.38, 0]      # thumb MCP  (phalanx-proximal)
-        lm[3]  = [ 0.032,  palm * 0.52, 0]      # thumb IP   (phalanx-distal)
-        lm[4]  = [ 0.033,  palm * 0.62, 0]      # thumb tip
-        lm[5]  = [ 0.020,  palm * 0.88, 0]      # index metacarpal
-        lm[6]  = [ 0.020,  palm,        0]      # index MCP  (phalanx-proximal) ★
-        lm[9]  = [ 0.020,  palm,        0]      # index tip  (초기화용, 나중에 덮어씀)
-        lm[10] = [ 0.005,  palm * 0.90, 0]      # middle metacarpal
-        lm[11] = [ 0.005,  palm,        0]      # middle MCP ★
-        lm[14] = [ 0.005,  palm,        0]      # middle tip
-        lm[15] = [-0.015,  palm * 0.90, 0]      # ring metacarpal
-        lm[16] = [-0.015,  palm * 0.98, 0]      # ring MCP ★
-        lm[19] = [-0.015,  palm * 0.98, 0]      # ring tip
-        lm[20] = [-0.030,  palm * 0.85, 0]      # pinky metacarpal
-        lm[21] = [-0.030,  palm * 0.93, 0]      # pinky MCP ★
+        lm[0]  = [0, 0, 0]                         # wrist
+        lm[2]  = [ 0.02, palm * 0.35, 0]           # thumb CMC
+        lm[3]  = [ 0.025, palm * 0.50, 0]          # thumb MCP
+        lm[5]  = [ 0.02,  palm, 0]                 # index MCP
+        lm[9]  = [ 0.005, palm, 0]                 # middle MCP
+        lm[13] = [-0.015, palm * 0.97, 0]          # ring MCP
+        lm[17] = [-0.030, palm * 0.93, 0]          # pinky MCP
         return lm
-
-    PALM = 0.09
-    EXT  = 0.08   # 손가락 길이
-
-    # WebXR 기준 (vertex_idx, tip_idx) — FINGER_ANGLE_POINTS에서 추출
-    # f1:(0,2,4) f2:(0,6,9) f3:(0,11,14) f4:(0,16,19)
-    tip_by_f = {1: 4, 2: 9, 3: 14, 4: 19}
-    mcp_by_f = {1: 2, 2: 6, 3: 11, 4: 16}
 
     # ── 검증 1: 완전 펼침 → FE ≈ 0 ──────────────────────────────
     print("\n[1] 완전 펼침: 굽힘각≈0° → FE≈0 예상")
     lm = _make_lm()
-    for f in range(1, 5):
-        # tip을 MCP에서 손 길이방향(+y)으로 배치 → Wrist-MCP-Tip 거의 직선
-        lm[tip_by_f[f]] = lm[mcp_by_f[f]] + np.array([0, EXT, 0])
+    PALM = 0.09
+    EXT = 0.08   # 손가락 길이
+
+    # 각 손가락 tip을 MCP에서 y방향(손 길이방향)으로 배치
+    tip_positions = {1: (3, 4), 2: (5, 8), 3: (9, 12), 4: (13, 16)}
+    for f, (mcp_i, tip_i) in tip_positions.items():
+        lm[tip_i] = lm[mcp_i] + np.array([0, EXT, 0])   # straight along y
 
     cmd = build_hand_cmd(lm, lm)[:8]
     for f in range(1, 5):
-        aa   = math.degrees(cmd[(f-1)*2])
-        fe   = math.degrees(cmd[(f-1)*2+1])
+        aa = math.degrees(cmd[(f-1)*2])
+        fe = math.degrees(cmd[(f-1)*2+1])
         flex = _flex_angle(lm[FINGER_ANGLE_POINTS[f][0]],
                            lm[FINGER_ANGLE_POINTS[f][1]],
                            lm[FINGER_ANGLE_POINTS[f][2]])
-        ok = "✓" if abs(fe) < 5 else "✗"
+        ok = "✓" if abs(fe) < 3 else "✗"
         print(f"  f{f}: flex={flex:.1f}°  AA={aa:+.1f}°  FE={fe:+.1f}°  {ok}")
 
     # ── 검증 2: 완전 구부림 → FE ≈ -86° ─────────────────────────
     print("\n[2] 완전 구부림: 굽힘각≈160° → FE≈-86° 예상")
     lm2 = _make_lm()
-    for f in range(1, 5):
-        # tip을 MCP에서 손목 방향(-y)으로 되돌림 → vertex angle 작아짐 → flex↑
-        lm2[tip_by_f[f]] = lm2[mcp_by_f[f]] + np.array([0, -EXT * 0.5, 0])
+    # tip을 MCP에서 -y 방향(손목 방향)으로 배치 → vertex angle ≈ 20° → flex ≈ 160°
+    for f, (mcp_i, tip_i) in tip_positions.items():
+        lm2[tip_i] = lm2[mcp_i] + np.array([0, -EXT * 0.5, 0])
 
     cmd2 = build_hand_cmd(lm2, lm2)[:8]
     for f in range(1, 5):
-        fe   = math.degrees(cmd2[(f-1)*2+1])
+        fe = math.degrees(cmd2[(f-1)*2+1])
         flex = _flex_angle(lm2[FINGER_ANGLE_POINTS[f][0]],
                            lm2[FINGER_ANGLE_POINTS[f][1]],
                            lm2[FINGER_ANGLE_POINTS[f][2]])
@@ -419,8 +356,8 @@ if __name__ == "__main__":
     # ── 검증 3: 출력 인덱스 확인 ─────────────────────────────────
     print("\n[3] 출력 배열 인덱스 (16개, 절반 구부림)")
     lm3 = _make_lm()
-    for f in range(1, 5):
-        lm3[tip_by_f[f]] = lm3[mcp_by_f[f]] + np.array([0, EXT * 0.2, EXT * 0.4])
+    for f, (mcp_i, tip_i) in tip_positions.items():
+        lm3[tip_i] = lm3[mcp_i] + np.array([0, EXT * 0.2, EXT * 0.4])  # 45° 구부림
     full = build_hand_cmd(lm3, lm3)
     names = []
     for side in ["L", "R"]:

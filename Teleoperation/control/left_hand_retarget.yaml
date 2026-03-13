@@ -1,0 +1,33 @@
+# left_hand_retarget.yaml  (dex-retargeting 0.1.1)
+# load_from_file()은 yaml["retargeting"] 키를 읽으므로 최상위에 retargeting: 필수
+
+retargeting:
+  type: "dexpilot"
+
+  urdf_path: "/home/teleopstation/catkin_ws/src/Teleoperation/control/left_hand.urdf"
+
+  # DexPilot이 내부적으로 [wrist + tip×4] 좌표로 최적화
+  # link_names = [wrist_link_name] + finger_tip_link_names 순서
+  # Quest 인덱스 자동 매핑: wrist=0×4=0, tip1=1×4=4, tip2=2×4=8, tip3=3×4=12, tip4=4×4=16
+  wrist_link_name: "base_link"
+
+  finger_tip_link_names:
+    - L_finger_end_1   # 엄지 → Quest index 4
+    - L_finger_end_2   # 검지 → Quest index 8
+    - L_finger_end_3   # 중지 → Quest index 12
+    - L_finger_end_4   # 약지 → Quest index 16
+
+  target_joint_names:
+    - L_AA_1_joint
+    - L_FE_1_joint
+    - L_AA_2_joint
+    - L_FE_2_joint
+    - L_AA_3_joint
+    - L_FE_3_joint
+    - L_AA_4_joint
+    - L_FE_4_joint
+
+  add_dummy_free_joint: false
+  has_joint_limits: true
+  scaling_factor: 0.87
+  low_pass_alpha: 0.4

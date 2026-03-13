@@ -36,9 +36,11 @@ KEY_FILE  = os.path.join(TELEVISION_DIR, 'key.pem')
 # 팔/목 트래킹 사용 여부. False면 IK 계산 없이 현재 자세 유지.
 USE_ARM    = True
 # 손가락 트래킹 사용 여부. False면 캘리브/텔레옵 모두 스킵하고 FINGER_NEUTRAL 유지.
-USE_FINGER = False
+USE_FINGER = True
+FINGER_DEBUG = False
 # Quest 3D 구체 오버레이 표시 여부. False면 손바닥 위치/방향 구체를 표시하지 않음.
 USE_SPHERE = True
+
 
 # ══════════════════════════════════════════════════════════════
 # 사운드 파일 경로
