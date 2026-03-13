@@ -155,17 +155,17 @@ def publish_smooth_move(pub, target_vals: list, current_vals: list = None,
 
 def publish_init(pub, current_vals=None):
     """
-    초기 자세(앞으로 나란히, INIT_VALS)로 부드럽게 이동합니다.
+    초기 자세(앞으로 나란히, CALIB_POS)로 부드럽게 이동합니다.
     캘리브레이션 시작 시 로봇을 기준 자세로 세우기 위해 호출됨.
     """
-    publish_smooth_move(pub, config.INIT_VALS, current_vals,
+    publish_smooth_move(pub, config.CALIB_POS, current_vals,
                         duration=2.0, label="캘리브레이션(초기)")
 
 
 def publish_fin(pub, current_vals=None, duration=2.5):
     """
-    종료 자세(FINAL_VALS)로 부드럽게 이동합니다.
+    종료 자세(INIT_POS)로 부드럽게 이동합니다.
     Ctrl+C 종료 시 finally 블록에서 호출되어 로봇을 안전 자세로 복귀시킴.
     """
-    publish_smooth_move(pub, config.FINAL_VALS, current_vals,
+    publish_smooth_move(pub, config.INIT_POS, current_vals,
                         duration=duration, label="종료")

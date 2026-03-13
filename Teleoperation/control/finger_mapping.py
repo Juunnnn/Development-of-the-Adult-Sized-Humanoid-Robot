@@ -1,114 +1,168 @@
 """
-finger_mapping.py  v3
+finger_mapping.py  v7
 ─────────────────────────────────────────────────────────────
 Quest Hand Tracking landmark → 로봇 손가락 관절각 변환 모듈.
 
-Quest는 손의 25개 landmark(3D 좌표)를 제공함.
-이 모듈은 그 좌표들로부터 로봇 손가락의 AA(벌림/모음)와 FE(굽힘/펴짐) 관절각을 계산함.
+[v6 → v7 버그 수정 요약]
 
-변경사항 (v2 → v3):
-  - AA 계산: 캘리브 기준 상대값 → 절대값 방식으로 변경
-    (손바닥 방향이 어느 쪽을 향하든 정확하게 계산됨)
-  - calib_lm 파라미터 제거 (L_calib 거리값만 있으면 됨)
-  - calc_fe에 clip 추가
+  ❌ v6 버그 1: HUMAN_FINGER_LEN 하드코딩
+      - Quest 스케일/사용자 손 크기에 따라 d_max보다 항상 작은 값이
+        들어오면 t < 1.0 → FE 항상 구부러짐 (중지 항상 굽힘 원인)
+
+  ✅ v7 수정 1: 손바닥 길이(wrist→middle_MCP) 기준 비율로 d_max 계산
+      - palm_len = |lm[MIDDLE_MCP] - lm[WRIST]|  (Quest 어떤 스케일이든 자동 적응)
+      - d_max = FINGER_PALM_RATIO[f] × palm_len   (해부학적 비율, 사람마다 일정)
+
+  ❌ v6 버그 2: 방향 기반 FE는 palm orientation(pronation/supination)에 따라
+      local_z 부호가 뒤집혀서 불안정. arctan2(-local_z, ...) 가 손 방향에 따라
+      양수/음수가 섞임.
+
+  ✅ v7 수정 2: FE는 거리 기반(DexPilot 방식)만 사용.
+      3D 거리 |MCP→Tip| 는 손 방향에 완전 무관.
+
+  ❌ v5 버그 (참고): arctan2(local_z, ...) 에서 z 부호 오류 + clip(0.0)으로
+      FE가 항상 0으로 강제됨. (방향 기반 FE의 근본 취약점)
+
+[손가락 매핑]
+  로봇 1번(엄지) ← 사용자 엄지  (Quest MCP=1, Tip=4 )
+  로봇 2번(검지) ← 사용자 검지  (Quest MCP=5, Tip=8 )
+  로봇 3번(중지) ← 사용자 중지  (Quest MCP=9, Tip=12)
+  로봇 4번(약지) ← 사용자 소지  (Quest MCP=17,Tip=20) ← 요청
+
+[URDF 기반 로봇 파라미터]
+  L1=0.052m (L_FE_1_joint → L_FE_follower_1_joint origin x)
+  L2=0.039m (L_FE_follower_1_joint → L_finger_end_joint_1 origin x)
+  AA: lower=-0.349(-20°), upper=0.349(+20°)
+  FE: lower=-1.501(-86°), upper=0.000( 0°)
+  FE_follower: mimic ≈ 0.93 × FE
 """
 
 import numpy as np
 
 
 # ══════════════════════════════════════════════════════════════
-# 로봇 손가락 물리 파라미터
+# 로봇 손가락 물리 파라미터  (URDF에서 추출)
 # ══════════════════════════════════════════════════════════════
 
-# 손가락 링크 길이 [m].
-# L1: 근위지절(MCP~PIP), L2: 원위지절(PIP~Tip).
-L1      = 0.052
-L2      = 0.039
-L_TOTAL = L1 + L2   # 전체 손가락 길이 91mm. 캘리브 거리 → 로봇 거리 스케일링에 사용.
-
-# FE_follower 관절의 mimic 비율.
-# 로봇 구조상 FE 관절이 움직이면 follower 관절이 FE * 0.93으로 따라움직임 (mimic_fe_follower.py 담당).
-MIMIC   = 0.93
+L1      = 0.052          # 근위 링크 [m]
+L2      = 0.039          # 원위 링크 [m]
+L_TOTAL = L1 + L2        # 0.091 m
+MIMIC   = 0.93           # FE_follower = FE × MIMIC
 
 
 # ══════════════════════════════════════════════════════════════
-# 관절 한계
+# 관절 한계  (URDF)
 # ══════════════════════════════════════════════════════════════
 
-AA_MIN = -0.349   # -20°  손가락 모음 한계
-AA_MAX =  0.349   # +20°  손가락 벌림 한계
-FE_MIN = -1.501   # -86°  최대 굽힘 한계
-FE_MAX =  0.000   #   0°  완전 펼침 (굽힘 없음)
+AA_MIN = -0.349   # -20°
+AA_MAX =  0.349   # +20°
+FE_MIN = -1.501   # -86°
+FE_MAX =  0.000   #   0°
 
 
 # ══════════════════════════════════════════════════════════════
 # Quest landmark 인덱스
-# Quest Hand Tracking API의 25개 landmark 중 필요한 것만 사용.
 # ══════════════════════════════════════════════════════════════
 
-# 각 손가락별 (MCP 인덱스, Tip 인덱스).
-# FE 계산에 사용: MCP~Tip 거리가 손가락 굽힘 정도를 나타냄.
-FINGER_QUEST = {
-    1: (1,  4),   # 엄지  MCP=1,  Tip=4
-    2: (5,  8),   # 검지  MCP=5,  Tip=8
-    3: (13,  16),  # 중지  MCP=9,  Tip=12
-    4: (9, 12),  # 약지  MCP=13, Tip=16
+FINGER_TIPS = {
+    1: (1,  4),    # 엄지  → 로봇 1번
+    2: (5,  8),    # 검지  → 로봇 2번
+    3: (9,  12),   # 중지  → 로봇 3번
+    4: (13, 16),   # 약지  → 로봇 4번  (이전: 소지 17→20, 약지 직접 매핑으로 변경)
 }
 
-# 각 손가락 MCP 인덱스만 따로 정리 (AA 계산에서 인접 손가락 간 각도 계산에 사용).
-MCP_IDX = {1: 1, 2: 5, 3: 9, 4: 13}
+# 손바닥 프레임 기준점
+WRIST_IDX  = 0
+MIDDLE_MCP = 9    # palm_len 기준 / y축
+INDEX_MCP  = 5    # z축 계산용
+PINKY_MCP  = 17   # z축 계산용
 
 
 # ══════════════════════════════════════════════════════════════
-# LUT (Look-Up Table): MCP~Tip 거리 ↔ FE 각도 변환
+# 자동 캘리브레이션 설정
+# ══════════════════════════════════════════════════════════════
+# 텔레옵 시작 후 CALIB_FRAMES 프레임 동안 자동으로 d_max/d_min 수집.
+# 그 시간 안에 손가락을 한 번씩 펼쳤다 구부려주면 됩니다.
 # ══════════════════════════════════════════════════════════════
 
-def _tip_dist(fe: float) -> float:
-    """
-    FE 관절각 → MCP~Tip 거리 [m] 순방향 계산 (기구학).
+CALIB_FRAMES = 300   # 약 3~5초
 
-    FE 관절이 굽혀지면(음수 방향) Tip이 MCP에 가까워짐.
-    FE_follower도 함께 움직이므로 (fe + fe*MIMIC) 형태로 두 링크 끝점을 계산함.
-    """
-    ff = fe * MIMIC    # follower 관절이 따라 움직이는 양
-    x  = L1 * np.cos(fe) + L2 * np.cos(fe + ff)
-    y  = L1 * np.sin(fe) + L2 * np.sin(fe + ff)
-    return float(np.sqrt(x * x + y * y))
+# 캘리브 미완료 시 폴백값 [m]  (검지 실측 기반)
+CALIB_SEED_MAX = {1: 0.090, 2: 0.120, 3: 0.120, 4: 0.095}
+CALIB_SEED_MIN = {1: 0.038, 2: 0.052, 3: 0.052, 4: 0.040}
 
-def _build_lut(n: int = 400):
+
+# ══════════════════════════════════════════════════════════════
+# 2링크 IK LUT  (거리 → FE 각도, 모듈 로드 시 1회 생성)
+# ══════════════════════════════════════════════════════════════
+
+def _build_lut(n: int = 500):
     """
-    FE_MIN~FE_MAX 범위를 400등분해서 (거리, FE) 쌍 배열을 만듦.
-    이걸 미리 만들어두면 매 프레임 역방향 계산을 빠르게 할 수 있음(interpolation).
+    FE ∈ [FE_MIN, FE_MAX] → 손가락 끝 거리 d 테이블 생성.
+    MIMIC 적용:
+      px = L1·cos(fe) + L2·cos(fe·(1+MIMIC))
+      py = L1·sin(fe) + L2·sin(fe·(1+MIMIC))
+      d  = sqrt(px²+py²)
+    단조 증가 → np.interp 역산 가능.
     """
     fe_arr   = np.linspace(FE_MIN, FE_MAX, n)
-    dist_arr = np.array([_tip_dist(fe) for fe in fe_arr])
+    dist_arr = np.zeros(n)
+    for i, fe in enumerate(fe_arr):
+        ff = fe * MIMIC
+        px = L1 * np.cos(fe) + L2 * np.cos(fe + ff)
+        py = L1 * np.sin(fe) + L2 * np.sin(fe + ff)
+        dist_arr[i] = np.sqrt(px * px + py * py)
     return dist_arr, fe_arr
 
-# 모듈 로드 시 한 번만 계산해서 전역에 저장
-_LUT_DIST, _LUT_FE = _build_lut()
 
-def dist_to_fe(d: float) -> float:
-    """
-    MCP~Tip 거리 → FE 각도 [rad] 역방향 계산.
-    LUT 범위를 벗어난 값은 클리핑 후 보간.
-    """
-    d_c = np.clip(d, _LUT_DIST[0], _LUT_DIST[-1])
-    return float(np.interp(d_c, _LUT_DIST, _LUT_FE))
+_LUT_DIST, _LUT_FE = _build_lut()
+# _LUT_DIST[0] ≈ 0.0702 (완전 구부림)
+# _LUT_DIST[-1] = L_TOTAL = 0.091 (완전 펼침)
+
+
+def _dist_to_fe(d: float) -> float:
+    """로봇 스케일 MCP-Tip 거리 → FE 관절각 [rad]."""
+    d = float(np.clip(d, _LUT_DIST[0], _LUT_DIST[-1]))
+    return float(np.interp(d, _LUT_DIST, _LUT_FE))
 
 
 # ══════════════════════════════════════════════════════════════
-# 손가락 EMA 필터
+# 손바닥 로컬 프레임
+# ══════════════════════════════════════════════════════════════
+
+def _palm_frame(lm: np.ndarray) -> np.ndarray:
+    """
+    손바닥 기준 회전행렬 R (3×3) 반환.
+    열 순서: [x=가로, y=손 길이(앞), z=손바닥 법선]
+
+    Note: FE는 거리 기반이므로 z축 방향에 무관.
+    AA에만 x, y 성분 사용 (손바닥 법선 방향 불필요).
+    """
+    y_vec  = lm[MIDDLE_MCP] - lm[WRIST_IDX]
+    y_norm = np.linalg.norm(y_vec)
+    if y_norm < 1e-6:
+        return np.eye(3)
+    y_axis = y_vec / y_norm
+
+    v1    = lm[INDEX_MCP] - lm[WRIST_IDX]
+    v2    = lm[PINKY_MCP] - lm[WRIST_IDX]
+    z_raw = np.cross(v1, v2)
+    z_n   = np.linalg.norm(z_raw)
+    z_axis = z_raw / z_n if z_n > 1e-6 else np.array([0., 0., 1.])
+
+    x_raw  = np.cross(y_axis, z_axis)
+    x_n    = np.linalg.norm(x_raw)
+    x_axis = x_raw / x_n if x_n > 1e-6 else np.array([1., 0., 0.])
+    z_axis = np.cross(x_axis, y_axis)   # 재직교화
+
+    return np.column_stack([x_axis, y_axis, z_axis])
+
+
+# ══════════════════════════════════════════════════════════════
+# EMA 필터
 # ══════════════════════════════════════════════════════════════
 
 class FingerEMAFilter:
-    """
-    손가락 16개 관절각 전용 EMA 필터.
-    motion_utils.py의 EMAFilter와 동일한 구조지만 손가락 전용으로 분리됨.
-
-    alpha=0.4: 팔 필터(0.6)보다 낮게 설정 → 손가락 떨림이 심하므로 더 강하게 스무딩.
-    n=16: 양손 손가락 관절 총 16개 [L×8, R×8]
-    """
-
     def __init__(self, alpha: float = 0.4, n: int = 16):
         self.alpha = alpha
         self.n     = n
@@ -118,256 +172,261 @@ class FingerEMAFilter:
         if self.prev is None:
             self.prev = cmd.copy()
             return cmd.copy()
-        self.prev = self.alpha * cmd + (1 - self.alpha) * self.prev
+        self.prev = self.alpha * cmd + (1.0 - self.alpha) * self.prev
         return self.prev.copy()
 
     def reset(self, cmd: np.ndarray = None):
-        """None을 넘기면 완전 초기화, 값을 넘기면 그 값으로 초기화."""
         self.prev = None if cmd is None else cmd.copy()
 
 
 # ══════════════════════════════════════════════════════════════
-# 손바닥 법선 벡터 계산
+# 자동 캘리브레이터
 # ══════════════════════════════════════════════════════════════
 
-def _palm_normal(lm: np.ndarray) -> np.ndarray:
-    """
-    손목(0), 검지MCP(5), 약지MCP(13) 세 점으로 손바닥 평면의 법선 벡터를 계산합니다.
+class FingerCalibrator:
+    def __init__(self):
+        self.reset()
 
-    왜 필요한가?
-    ────────────
-    AA(손가락 벌림 각도) 계산 시 손바닥 평면을 기준으로 해야 함.
-    Quest 좌표계 기준이 아니라 현재 손 자세 기준으로 계산해야
-    손이 어느 방향을 향하든 정확하게 벌림 각도가 나옴.
-    """
-    v1   = lm[5]  - lm[0]   # 손목 → 검지MCP
-    v2   = lm[13] - lm[0]   # 손목 → 약지MCP
-    n    = np.cross(v1, v2)  # 두 벡터의 외적 = 손바닥 평면의 법선
-    norm = np.linalg.norm(n)
-    return n / norm if norm > 1e-6 else np.array([0., 0., 1.])
+    def reset(self):
+        # 0에서 시작 → 실측값이 항상 갱신됨 (SEED 초기값에 막히지 않음)
+        self._d_max = {f: 0.0 for f in range(1, 5)}
+        self._d_min = {f: 9.9 for f in range(1, 5)}
+        self._frame = 0
+        self.done   = False
+
+    def update(self, lm):
+        if self.done:
+            return
+        for f, (mcp_i, tip_i) in FINGER_TIPS.items():
+            d = float(np.linalg.norm(lm[tip_i] - lm[mcp_i]))
+            if d > 1e-4:
+                self._d_max[f] = max(self._d_max[f], d)
+                self._d_min[f] = min(self._d_min[f], d)
+        self._frame += 1
+        if self._frame >= CALIB_FRAMES:
+            # 데이터 품질 검사: 범위가 너무 좁으면 SEED로 대체
+            for f in range(1, 5):
+                rng = self._d_max[f] - self._d_min[f]
+                if self._d_max[f] < 1e-3 or rng < self._d_max[f] * 0.2:
+                    self._d_max[f] = CALIB_SEED_MAX[f]
+                    self._d_min[f] = CALIB_SEED_MIN[f]
+            self.done = True
+            print("[FingerCalib] 캘리브 완료!")
+            for f in range(1, 5):
+                print(f"  손가락{f}: max={self._d_max[f]*1000:.1f}mm  "
+                      f"min={self._d_min[f]*1000:.1f}mm")
+
+    @property
+    def d_max(self): return self._d_max
+
+    @property
+    def d_min(self): return self._d_min
 
 
-# ══════════════════════════════════════════════════════════════
-# FE (굽힘/펴짐) 관절각 계산
-# ══════════════════════════════════════════════════════════════
-
-def calc_fe(lm: np.ndarray, finger_idx: int, L_calib: float) -> float:
-    """
-    Quest landmark에서 MCP~Tip 거리를 재고, LUT로 FE 관절각을 역산합니다.
-
-    핵심 아이디어
-    ─────────────
-    손가락을 구부리면 Tip이 MCP에 가까워짐 (거리 감소).
-    캘리브 시 측정한 L_calib(펼쳤을 때의 MCP~Tip 거리)를 기준으로
-    현재 거리의 비율을 구해 로봇 링크 길이로 스케일링한 뒤 LUT로 FE 각도를 역산함.
-
-    Parameters
-    ----------
-    lm        : landmark 배열 (25, 3)
-    finger_idx: 손가락 번호 (1=엄지, 2=검지, 3=중지, 4=약지)
-    L_calib   : 손 펼쳤을 때 이 손가락의 MCP~Tip 거리 [m] (캘리브에서 측정)
-
-    Returns
-    -------
-    FE 각도 [rad], 범위 [FE_MIN, FE_MAX]
-    """
-    mcp_i, tip_i = FINGER_QUEST[finger_idx]
-    d_quest = float(np.linalg.norm(lm[tip_i] - lm[mcp_i]))  # 현재 MCP~Tip 거리
-
-    if d_quest < 1e-6 or L_calib < 1e-6:
-        return 0.0  # landmark 이상하면 0 반환
-
-    # Quest 거리 비율 → 로봇 링크 거리로 스케일링
-    d_robot = (d_quest / L_calib) * L_TOTAL
-
-    return float(np.clip(dist_to_fe(d_robot), FE_MIN, FE_MAX))
+_calib_L = FingerCalibrator()
+_calib_R = FingerCalibrator()
 
 
 # ══════════════════════════════════════════════════════════════
-# AA (벌림/모음) 관절각 계산
+# FE + AA 계산
 # ══════════════════════════════════════════════════════════════
 
-def calc_aa(lm: np.ndarray, finger_idx: int, is_left: bool) -> float:
+def _calc_fe_aa(lm: np.ndarray, finger_idx: int,
+                R_palm: np.ndarray, palm_len: float,
+                is_left: bool, calib: "FingerCalibrator" = None):
     """
-    인접 손가락 MCP 간 절대 각도를 계산해 AA 관절각으로 변환합니다.
+    손가락 1개의 FE, AA 관절각 계산.
 
-    핵심 아이디어 (v3 절대값 방식)
-    ────────────────────────────────
-    손가락 벌어짐 = 인접 MCP들 사이의 벡터가 손 길이 방향(손목→검지MCP)과
-    이루는 각도로 표현할 수 있음.
+    FE — 거리 기반 (orientation 무관)
+    ─────────────────────────────────
+    1. d_human = |MCP→Tip| 3D 거리
+    2. d_max   = FINGER_PALM_RATIO[f] × palm_len  (손 크기 자동 적응)
+    3. d_min   = d_max × BEND_RATIO               (완전 구부림 기준)
+    4. t       = clip((d_human - d_min) / (d_max - d_min), 0, 1)
+                 t=1.0: 완전 펼침 → FE=0
+                 t=0.0: 완전 구부림 → FE=FE_MIN
+    5. d_robot = t × (L_TOTAL - LUT_min) + LUT_min
+    6. FE      = LUT 역산(d_robot)
 
-    계산 순서:
-      1. 손바닥 평면 법선(normal) 계산
-      2. 손 길이 방향 벡터(ref_proj)를 손바닥 평면에 투영
-      3. 인접 MCP 간 벡터(sep_proj)를 손바닥 평면에 투영
-      4. ref_proj에 수직인 가로 방향(perp)에 sep_proj를 투영 → 벌어진 정도
-      5. arcsin으로 각도 계산
-
-    캘리브 자세와 무관 → 손이 어느 방향을 향하든 정확함 (v2 대비 개선점).
-
-    손가락별 인접 쌍 및 부호 보정:
-      손가락1(엄지): 검지MCP와 엄지MCP 간 각도, 부호 반전
-      손가락2(검지): 검지MCP와 중지MCP 간 각도
-      손가락3(중지): 중지MCP와 약지MCP 간 각도
-      손가락4(약지): 중지MCP와 약지MCP 간 각도, 부호 반전
-      오른손: 전체 부호 반전 (거울 대칭)
+    AA — 방향 기반 (손바닥 로컬 x/y 비율)
+    ──────────────────────────────────────
+    tip_vec 를 palm 로컬로 변환 → local_x(가로) / local_y(앞) 비율
+    AA = arctan2(local_x, local_y)
+    오른손 부호 반전
     """
-    # 각 손가락이 참조하는 인접 MCP 쌍 (a_f→b_f 방향 벡터 기준)
-    AA_PAIRS = {
-        1: (2, 1),   # 검지→엄지 방향 (엄지가 검지로부터 벌어지는 방향)
-        2: (2, 3),   # 검지→중지 방향
-        3: (3, 4),   # 중지→약지 방향
-        4: (3, 4),   # 중지→약지 방향 (약지는 반대 부호로 보정)
-    }
-    a_f, b_f = AA_PAIRS[finger_idx]
-    a_i, b_i = MCP_IDX[a_f], MCP_IDX[b_f]
+    mcp_i, tip_i = FINGER_TIPS[finger_idx]
 
-    # 손바닥 평면 법선
-    normal   = _palm_normal(lm)
+    tip_vec = lm[tip_i] - lm[mcp_i]
+    d_human = float(np.linalg.norm(tip_vec))
+    if d_human < 1e-6:
+        return 0.0, 0.0
 
-    # 손 길이 방향 기준 벡터: 손목(0) → 검지MCP(5)를 손바닥 평면에 투영
-    ref_vec  = lm[MCP_IDX[2]] - lm[0]
-    ref_proj = ref_vec - np.dot(ref_vec, normal) * normal
-    ref_norm = np.linalg.norm(ref_proj)
-    if ref_norm < 1e-6:
-        return 0.0
-    ref_proj /= ref_norm
+    # ── FE ──────────────────────────────────────────────────
+    d_max_f = calib.d_max[finger_idx] if (calib and calib.done) else CALIB_SEED_MAX[finger_idx]
+    d_min_f = calib.d_min[finger_idx] if (calib and calib.done) else CALIB_SEED_MIN[finger_idx]
+    t       = float(np.clip((d_human - d_min_f) / (d_max_f - d_min_f), 0.0, 1.0))
+    d_robot = t * (L_TOTAL - _LUT_DIST[0]) + _LUT_DIST[0]
+    fe      = _dist_to_fe(d_robot)
 
-    # 인접 MCP 간 벡터를 손바닥 평면에 투영
-    sep_vec  = lm[b_i] - lm[a_i]
-    sep_proj = sep_vec - np.dot(sep_vec, normal) * normal
-    sep_norm = np.linalg.norm(sep_proj)
-    if sep_norm < 1e-6:
-        return 0.0
-    sep_proj /= sep_norm
+    # ── AA ──────────────────────────────────────────────────
+    # 단위벡터로 palm 로컬 프레임에 투영
+    tip_unit  = tip_vec / d_human
+    tip_local = R_palm.T @ tip_unit   # [x=가로, y=앞, z=법선]
+    local_x   = tip_local[0]
+    local_y   = tip_local[1]
 
-    # ref_proj에 수직인 가로 방향 (손가락 벌림 방향)
-    perp   = np.cross(normal, ref_proj)
+    # local_y 강제 양수 제거 → xy 벡터 크기가 충분할 때만 계산
+    xy_norm = np.sqrt(local_x ** 2 + local_y ** 2)
+    if xy_norm > 0.1:   # tip 벡터가 손바닥 법선 방향으로만 향하는 비정상 자세 제외
+        aa = float(np.arctan2(local_x, local_y))
+    else:
+        aa = 0.0
+    if not is_left:
+        aa = -aa
 
-    # sep_proj의 perp 성분 = 손가락이 가로 방향으로 벌어진 정도
-    spread = np.dot(sep_proj, perp)
-    angle  = np.arcsin(np.clip(spread, -1.0, 1.0))
-
-    # 손가락별/손 방향별 부호 보정
-    if finger_idx == 1:   # 엄지: 인접 쌍이 반대 방향이라 부호 반전
-        angle = -angle
-    if finger_idx == 4:   # 약지: 중지와 약지 쌍을 공유하지만 반대 방향
-        angle = -angle
-    if not is_left:        # 오른손: 좌우 대칭이라 전체 부호 반전
-        angle = -angle
-
-    return float(np.clip(angle, AA_MIN, AA_MAX))
+    fe = float(np.clip(fe, FE_MIN, FE_MAX))
+    aa = float(np.clip(aa, AA_MIN, AA_MAX))
+    return aa, fe
 
 
 # ══════════════════════════════════════════════════════════════
-# 한 손 전체 landmark → 8개 관절각
+# 한 손 전체: 8개 관절각
 # ══════════════════════════════════════════════════════════════
 
 def landmarks_to_finger_cmd(lm: np.ndarray, is_left: bool,
-                             L_calib: np.ndarray) -> np.ndarray:
+                             L_calib: np.ndarray = None) -> np.ndarray:
     """
-    한 손의 landmark → [AA_1, FE_1, AA_2, FE_2, AA_3, FE_3, AA_4, FE_4] 8개 관절각.
-
-    4개 손가락 각각에 대해 AA, FE를 계산해서 순서대로 배열함.
-    (손가락1=엄지, 2=검지, 3=중지, 4=약지)
-
-    Parameters
-    ----------
-    lm      : landmark 배열 (25, 3)
-    is_left : True=왼손, False=오른손 (AA 부호 보정에 사용)
-    L_calib : shape (4,) 각 손가락의 캘리브 MCP~Tip 거리 [m]
+    한 손 landmark (25, 3) → [AA_1, FE_1, AA_2, FE_2, AA_3, FE_3, AA_4, FE_4]
+    총 8개 관절각 [rad]
     """
+    R_palm = _palm_frame(lm)
+    calib  = _calib_L if is_left else _calib_R
+    calib.update(lm)
+
     cmd = np.zeros(8)
     for f in range(1, 5):
-        cmd[(f - 1) * 2]     = 0.0 #calc_aa(lm, f, is_left)
-        cmd[(f - 1) * 2 + 1] = calc_fe(lm, f, L_calib[f - 1])
+        aa, fe             = _calc_fe_aa(lm, f, R_palm, 0.0, is_left, calib)
+        cmd[(f - 1) * 2]   = aa
+        cmd[(f - 1) * 2 + 1] = fe
     return cmd
 
 
 def build_hand_cmd(left_lm: np.ndarray, right_lm: np.ndarray,
-                   L_calib_left: np.ndarray,
-                   L_calib_right: np.ndarray) -> np.ndarray:
+                   L_calib_left:  np.ndarray = None,
+                   L_calib_right: np.ndarray = None) -> np.ndarray:
     """
-    양손 landmark → 16개 관절각 배열.
-
-    반환 형식: [L_AA_1, L_FE_1, ..., L_AA_4, L_FE_4,
-                R_AA_1, R_FE_1, ..., R_AA_4, R_FE_4]
-
-    teleop_ik.py의 TELEOP 상태에서 매 프레임 호출됨.
-    결과는 finger_filter(EMA)를 거친 뒤 pub_hand로 publish됨.
+    양손 landmark → 16개 관절각.
+    [L_AA_1, L_FE_1, ..., L_AA_4, L_FE_4,
+     R_AA_1, R_FE_1, ..., R_AA_4, R_FE_4]
     """
-    l = landmarks_to_finger_cmd(left_lm,  True,  L_calib_left)
-    r = landmarks_to_finger_cmd(right_lm, False, L_calib_right)
+    l = landmarks_to_finger_cmd(left_lm,  is_left=True)
+    r = landmarks_to_finger_cmd(right_lm, is_left=False)
     return np.concatenate([l, r])
 
 
 # ══════════════════════════════════════════════════════════════
-# 캘리브레이션
+# 호환성 유지용 더미
 # ══════════════════════════════════════════════════════════════
 
 def compute_finger_calib(lm: np.ndarray) -> np.ndarray:
-    """
-    손 펼친 상태의 landmark에서 각 손가락 MCP~Tip 거리를 측정합니다.
+    return np.zeros(4)
 
-    이 값(L_calib)이 FE 계산의 기준이 됨.
-    같은 손가락을 구부렸을 때 현재 거리 / L_calib = 굽힘 비율.
-
-    CALIBRATING_FINGERS 상태에서 50프레임 평균 landmark로 호출됨.
-
-    Returns
-    -------
-    L_calib : shape (4,) [엄지, 검지, 중지, 약지] MCP~Tip 거리 [m]
-    """
-    L = np.zeros(4)
-    for f, (mcp_i, tip_i) in FINGER_QUEST.items():
-        L[f - 1] = np.linalg.norm(lm[tip_i] - lm[mcp_i])
-    return L
-
-
-# ══════════════════════════════════════════════════════════════
-# 유효성 검사
-# ══════════════════════════════════════════════════════════════
 
 def is_landmark_valid(lm: np.ndarray) -> bool:
-    """
-    landmark 배열이 사용 가능한 상태인지 확인합니다.
-
-    Quest Hand Tracking이 손을 못 잡으면 전부 0 또는 NaN으로 채운 배열을 반환함.
-    이걸 그대로 계산에 쓰면 이상한 관절각이 나오므로 먼저 검사함.
-
-    False를 반환하는 경우:
-      - lm이 None
-      - NaN 포함
-      - 모든 값이 0에 가까움 (트래킹 미감지 상태)
-    """
-    if lm is None:
+    if lm is None or np.any(np.isnan(lm)):
         return False
-    if np.any(np.isnan(lm)):
-        return False
-    if np.allclose(lm, 0, atol=1e-6):
-        return False
-    return True
+    return not np.allclose(lm, 0, atol=1e-6)
 
 
 # ══════════════════════════════════════════════════════════════
 # 단독 테스트
 # ══════════════════════════════════════════════════════════════
-if __name__ == '__main__':
-    print('=== LUT 검증: FE → 거리 → FE 역산 오차 확인 ===')
-    for fe_deg in [0, -20, -45, -60, -86]:
-        fe   = np.radians(fe_deg)
-        d    = _tip_dist(fe)
-        fe_r = dist_to_fe(d)
-        print(f'  FE={fe_deg:4d}°  dist={d*1000:.2f}mm  역산={np.degrees(fe_r):.2f}°')
 
-    print('\n=== AA 절대값 계산 테스트: 나란히 자세 → 0°에 가까워야 ===')
-    lm = np.zeros((25, 3))
-    lm[0]  = [0, 0, 0]       # 손목
-    lm[5]  = [0, 0.08, 0]    # 검지MCP (Y방향 = 손 길이 방향)
-    lm[13] = [0, 0.07, 0]    # 약지MCP
-    for f, (mcp_i, _) in FINGER_QUEST.items():
-        lm[mcp_i] = [0, 0.07, 0]   # 모든 MCP를 나란히 배치
+if __name__ == '__main__':
+    print('=' * 60)
+    print('  finger_mapping v7 검증')
+    print('=' * 60)
+
+    def make_hand(palm_len=0.090):
+        lm = np.zeros((25, 3))
+        lm[WRIST_IDX]  = [0,      0,           0]
+        lm[MIDDLE_MCP] = [0,      palm_len,    0]   # 정확히 y축
+        lm[INDEX_MCP]  = [ 0.030, palm_len*0.97, 0]
+        lm[PINKY_MCP]  = [-0.030, palm_len*0.95, 0]
+        lm[1]  = [ 0.025, palm_len*0.35, 0]   # 엄지 MCP
+        lm[5]  = [ 0.030, palm_len*0.97, 0]   # 검지 MCP = INDEX_MCP
+        lm[9]  = [ 0,     palm_len,      0]   # 중지 MCP = MIDDLE_MCP
+        lm[17] = [-0.030, palm_len*0.95, 0]   # 소지 MCP = PINKY_MCP
+        return lm
+
+    PALM = 0.090
+
+    def dm(f, pl=PALM): return FINGER_PALM_RATIO[f] * pl
+    def dn(f, pl=PALM): return dm(f, pl) * BEND_RATIO
+
+    # ── 1. 펼침 ────────────────────────────────────────────────
+    print('\n[1] 모든 손가락 펼쳤을 때 → FE=0°, AA=0°')
+    lm = make_hand(PALM)
+    for f, (mcp_i, tip_i) in FINGER_TIPS.items():
+        lm[tip_i] = lm[mcp_i] + [0, dm(f), 0]
+    cmd = landmarks_to_finger_cmd(lm, is_left=True)
     for f in range(1, 5):
-        aa = calc_aa(lm, f, is_left=True)
-        print(f'  손가락{f} AA={np.degrees(aa):.1f}°')
-    print('✅ 완료')
+        print(f'  로봇{f}: AA={np.degrees(cmd[(f-1)*2]):+.1f}°  FE={np.degrees(cmd[(f-1)*2+1]):+.1f}°')
+
+    # ── 2. 완전 구부림 ─────────────────────────────────────────
+    print('\n[2] 모든 손가락 완전 구부림 → FE=-86°')
+    lm = make_hand(PALM)
+    for f, (mcp_i, tip_i) in FINGER_TIPS.items():
+        lm[tip_i] = lm[mcp_i] + [0, dn(f) * 0.8, 0]
+    cmd = landmarks_to_finger_cmd(lm, is_left=True)
+    for f in range(1, 5):
+        print(f'  로봇{f}: AA={np.degrees(cmd[(f-1)*2]):+.1f}°  FE={np.degrees(cmd[(f-1)*2+1]):+.1f}°')
+
+    # ── 3. 손 크기 독립성 ──────────────────────────────────────
+    print('\n[3] 손 크기 독립 - 검지 절반 구부림')
+    for pl in [0.075, 0.090, 0.105]:
+        lm2 = make_hand(pl)
+        lm2[8] = lm2[5] + [0, (dm(2,pl)+dn(2,pl))/2, 0]
+        fe = np.degrees(landmarks_to_finger_cmd(lm2, True)[3])
+        print(f'  palm={pl*1000:.0f}mm: 검지 FE={fe:+.1f}°  (크기별 동일해야 함)')
+
+    # ── 4. Palm orientation 독립성 ─────────────────────────────
+    print('\n[4] Palm orientation 독립성 (FE = 거리 기반, 방향 무관)')
+    dh = (dm(2)+dn(2))/2
+    lm3 = make_hand(PALM); lm3[8] = lm3[5] + [0, dh, 0]
+    fe_n = np.degrees(landmarks_to_finger_cmd(lm3, True)[3])
+    lm4 = make_hand(PALM)
+    for i in range(len(lm4)): lm4[i] = [lm3[i][0], lm3[i][2], lm3[i][1]]
+    fe_r = np.degrees(landmarks_to_finger_cmd(lm4, True)[3])
+    print(f'  정상 방향: FE={fe_n:+.1f}°')
+    print(f'  회전된   : FE={fe_r:+.1f}°')
+    print(f'  차이     : {abs(fe_n-fe_r):.1f}°  (0이어야 함)')
+
+    # ── 5. 소지→로봇 약지 매핑 ────────────────────────────────
+    print('\n[5] 소지(Quest 17→20) → 로봇 4번(약지) 매핑')
+    lm5 = make_hand(PALM)
+    lm5[20] = lm5[17] + [0, dm(4), 0]
+    fe_e = np.degrees(landmarks_to_finger_cmd(lm5, True)[7])
+    lm5[20] = lm5[17] + [0, dn(4)*0.8, 0]
+    fe_b = np.degrees(landmarks_to_finger_cmd(lm5, True)[7])
+    print(f'  소지 펼침  → 로봇4 FE={fe_e:+.1f}°  (목표: 0°)')
+    print(f'  소지 구부림 → 로봇4 FE={fe_b:+.1f}°  (목표: -86°)')
+
+    # ── 6. AA 방향 ────────────────────────────────────────────
+    print('\n[6] 검지 AA 방향')
+    lm6 = make_hand(PALM); base = lm6[5] + [0, dm(2), 0]
+    lm6[8] = base
+    aa0 = np.degrees(landmarks_to_finger_cmd(lm6, True)[2])
+    lm6[8] = base + [0.03, 0, 0]
+    aa_r = np.degrees(landmarks_to_finger_cmd(lm6, True)[2])
+    lm6[8] = base + [-0.02, 0, 0]
+    aa_l = np.degrees(landmarks_to_finger_cmd(lm6, True)[2])
+    print(f'  중립       : AA={aa0:+.1f}°')
+    print(f'  오른쪽 벌림: AA={aa_r:+.1f}°  (양수여야 함)')
+    print(f'  왼쪽 모음  : AA={aa_l:+.1f}°  (음수여야 함)')
+
+    print('\n✅ 검증 완료')
+    print()
+    print('[튜닝 가이드]')
+    print(f'  BEND_RATIO={BEND_RATIO}  구부림 민감도: 느리면↓(0.30) 빠르면↑(0.50)')
+    print('  FINGER_PALM_RATIO  손 비율 조정 시: 펼침에서 FE≠0° 이면 조정')

@@ -4,7 +4,6 @@ from multiprocessing import shared_memory, Queue, Event
 import numpy as np
 import rospy
 from std_msgs.msg import Float64MultiArray
-# 이걸로 교체
 from sensor_msgs.msg import Image
 import cv2
 import time

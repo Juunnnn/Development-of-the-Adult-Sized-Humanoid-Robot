@@ -68,7 +68,7 @@ def build_robot_model():
     # pin.neutral()은 모든 관절이 0인 q를 반환. 여기에 INIT_VALS를 덮어씀.
     q_init    = pin.neutral(model)
     joint_ids = []
-    for name, val in zip(config.JOINT_ORDER, config.INIT_VALS):
+    for name, val in zip(config.JOINT_ORDER, config.CALIB_POS):
         jid = model.getJointId(name)
         idx = model.joints[jid].idx_q   # pinocchio q 벡터 내 해당 관절의 인덱스
         q_init[idx] = val
