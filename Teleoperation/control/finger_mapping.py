@@ -83,8 +83,8 @@ AA_MIN = -0.349   # -20°
 AA_MAX =  0.349   # +20°
 
 # ── AA 활성화 (False = AmazingHand 원본 동작, True = 실험적) ──────
-USE_AA = False
-AA_XY_THRESH = 0.15   # USE_AA=True 시: 이 미만이면 AA=0
+# ※ build_hand_cmd()의 use_aa 파라미터로 제어 (config.USE_FINGER_AA 연동)
+AA_XY_THRESH = 0.15   # 손바닥 평면 투영 벡터 크기가 이 미만이면 AA=0
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -98,6 +98,27 @@ FINGER_ANGLE_POINTS: dict[int, tuple[int, int, int]] = {
     2: ( 0,  6,  9),   # 검지:       Wrist(0) → IndexMCP(6)  → IndexTip(9)
     3: ( 0, 11, 14),   # 중지:       Wrist(0) → MiddleMCP(11) → MiddleTip(14)
     4: ( 0, 21, 24),   # 약지←소지: Wrist(0) → PinkyMCP(21) → PinkyTip(24)
+}
+
+# AA 계산 전용 포인트 — MCP → PIP (첫 번째 마디만)
+#   Tip 대신 PIP를 쓰는 이유: 손가락을 구부리면 Tip이 손바닥 안으로
+#   말려 들어가서 AA 계산값이 FE에 오염됨. PIP는 MCP 바로 다음 관절이라
+#   구부림 영향이 최소화되어 순수한 옆벌림/모음만 반영됨.
+#   ★ 로봇 약지(4번)는 사람 소지(PinkyMCP=21, PinkyPIP=22) 랜드마크 사용
+FINGER_AA_POINTS: dict[int, tuple[int, int]] = {
+    1: ( 2,  3),   # 엄지:       ThumbMCP(2)  → ThumbIP(3)
+    2: ( 6,  7),   # 검지:       IndexMCP(6)  → IndexPIP(7)
+    3: (11, 12),   # 중지:       MiddleMCP(11) → MiddlePIP(12)
+    4: (21, 22),   # 약지←소지: PinkyMCP(21) → PinkyPIP(22)  ★소지 사용
+}
+
+# 손가락별 AA 부호 (+1 또는 -1)
+#   실측 결과 검지·중지·약지(소지)는 손바닥 프레임 x축 방향이 반전되어 있음
+AA_SIGN: dict[int, float] = {
+    1: +1.0,   # 엄지
+    2: -1.0,   # 검지 (반전)
+    3: -1.0,   # 중지 (반전)
+    4: -1.0,   # 약지←소지 (반전)
 }
 
 # AA 계산용 손바닥 프레임 landmark 인덱스
@@ -167,17 +188,20 @@ def _palm_frame(lm: np.ndarray) -> np.ndarray:
 
 
 def _compute_aa(lm: np.ndarray, f: int, R_palm: np.ndarray, is_left: bool) -> float:
-    """손바닥 로컬 프레임에서 MCP→Tip 벡터의 가로 성분으로 AA 계산."""
-    mcp_i, tip_i = FINGER_ANGLE_POINTS[f][1], FINGER_ANGLE_POINTS[f][2]
-    vec = lm[tip_i] - lm[mcp_i]
+    """손바닥 로컬 프레임에서 MCP→PIP 벡터의 가로 성분으로 AA 계산.
+    Tip 대신 PIP를 사용해 손가락 구부림(FE)에 의한 오염을 최소화.
+    손가락별 부호(AA_SIGN)와 좌/우 반전을 적용."""
+    mcp_i, pip_i = FINGER_AA_POINTS[f]
+    vec = lm[pip_i] - lm[mcp_i]
     d = np.linalg.norm(vec)
     if d < 1e-6:
         return 0.0
     tip_local = R_palm.T @ (vec / d)
     lx, ly = float(tip_local[0]), float(tip_local[1])
     aa = float(np.arctan2(lx, ly)) if np.hypot(lx, ly) > AA_XY_THRESH else 0.0
+    aa *= AA_SIGN[f]           # 손가락별 부호 적용
     if not is_left:
-        aa = -aa
+        aa = -aa               # 오른손 좌우 반전
     return float(np.clip(aa, AA_MIN, AA_MAX))
 
 
@@ -185,14 +209,22 @@ def _compute_aa(lm: np.ndarray, f: int, R_palm: np.ndarray, is_left: bool) -> fl
 # §4  한 손 리타게팅
 # ══════════════════════════════════════════════════════════════════
 
-def _retarget_hand(lm: np.ndarray, is_left: bool) -> np.ndarray:
-    """Quest landmark (25,3) → 8개 관절각 [AA_1, FE_1, ..., AA_4, FE_4]."""
-    R_palm = _palm_frame(lm) if USE_AA else None
+def _retarget_hand(lm: np.ndarray, is_left: bool,
+                   use_fe: bool = True, use_aa: bool = False) -> np.ndarray:
+    """Quest landmark (25,3) → 8개 관절각 [AA_1, FE_1, ..., AA_4, FE_4].
+
+    Parameters
+    ----------
+    use_fe : FE(굽힘/펼침) 계산 활성화. False면 FE=0 고정.
+    use_aa : AA(옆벌림/모음) 계산 활성화. False면 AA=0 고정.
+    """
+    R_palm = _palm_frame(lm) if use_aa else None
     cmd = np.zeros(8)
     for f in range(1, 5):
-        p1_i, p2_i, p3_i = FINGER_ANGLE_POINTS[f]
-        cmd[(f-1)*2 + 1] = _flex_to_fe(_flex_angle(lm[p1_i], lm[p2_i], lm[p3_i]), f)
-        if USE_AA and R_palm is not None:
+        if use_fe:
+            p1_i, p2_i, p3_i = FINGER_ANGLE_POINTS[f]
+            cmd[(f-1)*2 + 1] = _flex_to_fe(_flex_angle(lm[p1_i], lm[p2_i], lm[p3_i]), f)
+        if use_aa and R_palm is not None:
             cmd[(f-1)*2] = _compute_aa(lm, f, R_palm, is_left)
     return cmd
 
@@ -232,9 +264,16 @@ class FingerEMAFilter:
 def build_hand_cmd(
     left_lm:  np.ndarray | None,
     right_lm: np.ndarray | None,
+    use_fe:   bool = True,
+    use_aa:   bool = False,
 ) -> np.ndarray:
     """
     양손 Quest landmark → 16개 관절각.
+
+    Parameters
+    ----------
+    use_fe : FE(굽힘/펼침) 활성화. config.USE_FINGER_FE 연동.
+    use_aa : AA(옆벌림/모음) 활성화. config.USE_FINGER_AA 연동.
 
     Returns
     -------
@@ -242,6 +281,8 @@ def build_hand_cmd(
         [L_AA_1, L_FE_1, L_AA_2, L_FE_2, L_AA_3, L_FE_3, L_AA_4, L_FE_4,
          R_AA_1, R_FE_1, R_AA_2, R_FE_2, R_AA_3, R_FE_3, R_AA_4, R_FE_4]
     """
-    l_cmd = _retarget_hand(left_lm,  is_left=True)  if is_landmark_valid(left_lm)  else np.zeros(8)
-    r_cmd = _retarget_hand(right_lm, is_left=False) if is_landmark_valid(right_lm) else np.zeros(8)
+    l_cmd = (_retarget_hand(left_lm,  is_left=True,  use_fe=use_fe, use_aa=use_aa)
+             if is_landmark_valid(left_lm)  else np.zeros(8))
+    r_cmd = (_retarget_hand(right_lm, is_left=False, use_fe=use_fe, use_aa=use_aa)
+             if is_landmark_valid(right_lm) else np.zeros(8))
     return np.concatenate([l_cmd, r_cmd])

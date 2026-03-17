@@ -157,16 +157,15 @@ if os.path.exists(config.CALIB_PATH):
     quest_R_wrist_rot_init = np.array(cd.get('quest_R_wrist_rot_init', np.eye(3).tolist()))
     calibrated = True
     WAITING_L_POS, WAITING_R_POS = _compute_waiting_pos(quest_L_init, quest_R_init)
-    print(f"✅ 캘리브 로드 완료  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
-    print(f"   WAITING 구체  L{WAITING_L_POS.round(3)}  R{WAITING_R_POS.round(3)}")
+    print(f"[INIT] Calibration loaded  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
 else:
     if not config.USE_ARM:
         quest_L_init = np.zeros(3)
         quest_R_init = np.zeros(3)
         calibrated   = True
-        print("ℹ️  USE_ARM=False → 팔 캘리브 스킵")
+        print("[INIT] USE_ARM=False, skipping arm calibration")
     else:
-        print("📐 캘리브 없음 → Quest 접속 후 팔 앞으로 쭉 뻗어!")
+        print("[INIT] No calibration file found. Connect Quest and extend arms forward.")
 
 # ── 초기 q ────────────────────────────────────────────────
 q = ros.wait_for_joint_states()
@@ -209,9 +208,13 @@ _l_update_count = _r_update_count = _frame_count = 0
 _last_status_time = 0.0
 STATUS_INTERVAL   = 0.5   # [s]
 
-print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("  🎮 HR Teleop 시작!")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+print("\n" + "=" * 44)
+print("  HR Teleop")
+fe_s = "ON" if config.USE_FINGER_FE else "OFF"
+aa_s = "ON" if config.USE_FINGER_AA else "OFF"
+nk_s = "ON" if config.USE_NECK      else ("TRACK" if config.USE_NECK_TRACK else "OFF")
+print(f"  ARM={str(config.USE_ARM).upper()}  FINGER FE={fe_s}  FINGER AA={aa_s}  NECK={nk_s}")
+print("=" * 44 + "\n")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -235,12 +238,12 @@ try:
             _r_update_count += 1
             _prev_r = r_raw.copy()
         if _frame_count % 50 == 0:
-            print(f"[Quest] {tv.hand_hz:.1f}Hz | 업데이트율 {100*_l_update_count/_frame_count:.0f}%")
+            print(f"[Quest] {tv.hand_hz:.1f}Hz | update_rate={100*_l_update_count/_frame_count:.0f}%")
 
         # ── 트래킹 소실 감지 ───────────────────────────────
         if config.USE_ARM and np.allclose(r_raw, 0):
             if teleop_state == TeleopState.TELEOP:
-                print("🚨 트래킹 소실 → FREEZE")
+                print("[WARN] Tracking lost -> FREEZE")
                 teleop_state      = TeleopState.FREEZE
                 freeze_start_time = time.time()
                 sync_target_q     = None
@@ -249,14 +252,14 @@ try:
             elif teleop_state == TeleopState.FREEZE:
                 pass
             elif teleop_state not in (TeleopState.WAITING_QUEST,):
-                print("⏳ 트래킹 소실 → 대기")
+                print("[WARN] Tracking lost -> WAITING")
                 teleop_state     = TeleopState.WAITING_QUEST
                 tracking_lost    = True
                 _waiting_printed = False
                 _countdown_start = None
             ros.overlay.update({'state': teleop_state.name, 'countdown': -1})
             if not _waiting_printed:
-                print("⏳ Quest 접속 대기 중...")
+                print("[WAIT] Waiting for Quest connection...")
                 _waiting_printed = True
             time.sleep(1.0 / config.CONTROL_HZ)
             continue
@@ -267,7 +270,7 @@ try:
         if teleop_state == TeleopState.WAITING_QUEST:
             if _countdown_start is None:
                 _countdown_start = time.time()
-                print(f"🎮 Quest 접속 확인! {int(config.TELEOP_START_DELAY)}초 후 시작...")
+                print(f"[WAIT] Quest connected. Starting in {int(config.TELEOP_START_DELAY)}s...")
                 beep('teleop_start')
 
             elapsed_cd  = time.time() - _countdown_start
@@ -298,11 +301,11 @@ try:
             _countdown_start = None
             ros.overlay['countdown'] = 0
             if not calibrated and config.USE_ARM:
-                print("📐 CALIBRATING 시작 - 팔 앞으로 쭉 뻗어!")
+                print("[STATE] -> CALIBRATING  (extend arms forward)")
                 teleop_state = TeleopState.CALIBRATING
                 beep('calib_start')
             else:
-                print("🔄 SYNCING 시작")
+                print("[STATE] -> SYNCING")
                 teleop_state = TeleopState.SYNCING
 
         # ── 점프 감지 (TELEOP) ─────────────────────────────
@@ -310,7 +313,7 @@ try:
             r_jump = np.linalg.norm(r_raw - prev_r_raw)
             l_jump = np.linalg.norm(l_raw - prev_l_raw) if prev_l_raw is not None else 0
             if r_jump > config.JUMP_THRESHOLD or l_jump > config.JUMP_THRESHOLD:
-                print(f"🚨 손 위치 점프 R={r_jump:.3f}m L={l_jump:.3f}m → FREEZE")
+                print(f"[WARN] Position jump detected  R={r_jump:.3f}m L={l_jump:.3f}m -> FREEZE")
                 teleop_state      = TeleopState.FREEZE
                 freeze_start_time = time.time()
                 sync_target_q     = None
@@ -372,7 +375,7 @@ try:
             tv.r_palm_dir   = CALIB_R_DIR.copy()
 
             if time.time() - _last_status_time > STATUS_INTERVAL:
-                print(f"  📐 캘리브 수집 중 ({len(calib_samples_R)}/{config.CALIB_COUNT})")
+                print(f"[CALIB] Collecting samples ({len(calib_samples_R)}/{config.CALIB_COUNT})")
                 _last_status_time = time.time()
 
             if (len(calib_samples_R) >= config.CALIB_COUNT and
@@ -397,9 +400,9 @@ try:
                 }
                 with open(config.CALIB_PATH, 'w') as f:
                     json.dump(calib_data, f)
-                print(f"✅ 캘리브 완료  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
+                print(f"[CALIB] Done  L{quest_L_init.round(3)}  R{quest_R_init.round(3)}")
                 beep('calib_done')
-                print("🔄 SYNCING 시작")
+                print("[STATE] -> SYNCING")
                 teleop_state = TeleopState.SYNCING
 
             time.sleep(1.0 / config.CONTROL_HZ)
@@ -444,12 +447,12 @@ try:
             remaining      = config.FREEZE_DURATION - elapsed_freeze
 
             if time.time() - _last_status_time > STATUS_INTERVAL:
-                print(f"  ⏸️  FREEZE {remaining:.1f}초 후 복귀 시도")
+                print(f"[FREEZE] Resuming in {remaining:.1f}s...")
                 _last_status_time = time.time()
             ros.overlay.update({'state': 'FREEZE', 'freeze_remaining': max(remaining, 0.0)})
 
             if elapsed_freeze >= config.FREEZE_DURATION:
-                print("🔄 FREEZE 해제 → SYNCING")
+                print("[STATE] FREEZE released -> SYNCING")
                 teleop_state  = TeleopState.SYNCING
                 sync_target_q = None
             else:
@@ -465,7 +468,7 @@ try:
         if teleop_state == TeleopState.SYNCING:
 
             if not config.USE_ARM:
-                print("ℹ️  USE_ARM=False → SYNCING 스킵, 텔레옵 시작!")
+                print("[STATE] USE_ARM=False, skipping SYNCING -> TELEOP")
                 teleop_state = TeleopState.TELEOP
                 beep('teleop_start' if _first_teleop_start else 'sync_done')
                 _first_teleop_start = False
@@ -490,8 +493,8 @@ try:
                     q_sync_cmd       = [float(q_sync[idx]) for idx in joint_ids]
                     q_sync_cmd[4]    = float(l_wrist_yaw)
                     q_sync_cmd[9]    = float(r_wrist_yaw)
-                    q_sync_cmd[10]   = float(neck_yaw)
-                    q_sync_cmd[11]   = float(neck_pitch)
+                    q_sync_cmd[10]   = float(neck_yaw)   if config.USE_NECK else 0.0
+                    q_sync_cmd[11]   = float(neck_pitch) if config.USE_NECK else 0.0
 
                     sync_target_q   = q_sync_cmd
                     sync_start_q    = [float(q[idx]) for idx in joint_ids]
@@ -505,7 +508,7 @@ try:
                     quest_pos_filter_r.reset(r_raw)
                     neck_filter.reset(np.array([float(neck_yaw), float(neck_pitch)]))
 
-                    print(f"🎯 싱크 타겟  L{l_sync_target.round(3)}  R{r_sync_target.round(3)}")
+                    print(f"[SYNC] Target  L{l_sync_target.round(3)}  R{r_sync_target.round(3)}")
 
                 elapsed_sync    = time.time() - sync_start_time
                 fraction        = min(elapsed_sync / config.SYNC_DURATION, 1.0)
@@ -522,7 +525,7 @@ try:
                 r_pos_err = np.linalg.norm(data.oMf[R_palm_id].translation - r_sync_target)
 
                 if time.time() - _last_status_time > STATUS_INTERVAL:
-                    print(f"  🔄 싱크 {fraction*100:.0f}% | 관절 {joint_err:.3f}rad | 위치 L{l_pos_err:.3f} R{r_pos_err:.3f}m")
+                    print(f"[SYNC] {fraction*100:.0f}%  joint={joint_err:.3f}rad  L={l_pos_err:.3f}m R={r_pos_err:.3f}m")
                     _last_status_time = time.time()
 
                 ros.overlay.update({
@@ -540,8 +543,10 @@ try:
                 )
 
                 if sync_done:
-                    print("✅ 싱크 완료 → 텔레옵 시작!" if fraction < 1.0
-                          else "⚠️  싱크 타임아웃 → 텔레옵 강제 시작")
+                    if fraction < 1.0:
+                        print("[STATE] Sync complete -> TELEOP")
+                    else:
+                        print("[STATE] Sync timeout, forcing -> TELEOP")
                     q = ros.get_current_q()
                     q_ref_current = q.copy()
                     arm_filter.reset(q)
@@ -613,13 +618,50 @@ try:
             cmd_data = [float(q[idx]) for idx in joint_ids]
             cmd_data[4]  = l_wrist_yaw_filt
             cmd_data[9]  = r_wrist_yaw_filt
-            neck_filt    = neck_filter.filter(np.array([float(neck_yaw), float(neck_pitch)]))
-            cmd_data[10] = neck_filt[0]
-            cmd_data[11] = neck_filt[1]
+            if config.USE_NECK:
+                neck_filt    = neck_filter.filter(np.array([float(neck_yaw), float(neck_pitch)]))
+                cmd_data[10] = neck_filt[0]
+                cmd_data[11] = neck_filt[1]
+            elif config.USE_NECK_TRACK:
+                # Head-to-midpoint tracking:
+                # Compute direction from head position to the midpoint of both hands
+                # in Quest frame, then extract yaw/pitch for the neck joints.
+                # Quest frame convention: X=right, Y=up, Z=backward (toward user)
+                head_pos = tv.head_matrix[:3, 3]
+                if (not np.allclose(head_pos, 0) and
+                        not np.allclose(l_raw, 0) and not np.allclose(r_raw, 0)):
+                    mid = (l_raw + r_raw) * 0.5
+                    d   = mid - head_pos
+                    d_norm = np.linalg.norm(d)
+                    if d_norm > 0.05:
+                        d /= d_norm
+                        # Yaw  (left-right): arctan2(X, -Z) in Quest frame
+                        # Pitch (up-down):   arctan2(-Y, sqrt(X^2+Z^2))
+                        nt_yaw   = np.clip(
+                            config.NECK_SCALE * float(np.arctan2(-d[0], d[2])),
+                            model.lowerPositionLimit[joint_ids[10]],
+                            model.upperPositionLimit[joint_ids[10]])
+                        nt_pitch = np.clip(
+                            config.NECK_SCALE * float(np.arctan2(-d[1],
+                                np.sqrt(d[0]**2 + d[2]**2))),
+                            model.lowerPositionLimit[joint_ids[11]],
+                            model.upperPositionLimit[joint_ids[11]])
+                        nt_filt      = neck_filter.filter(np.array([nt_yaw, nt_pitch]))
+                        cmd_data[10] = nt_filt[0]
+                        cmd_data[11] = nt_filt[1]
+                    else:
+                        cmd_data[10] = 0.0
+                        cmd_data[11] = 0.0
+                else:
+                    cmd_data[10] = 0.0
+                    cmd_data[11] = 0.0
+            else:
+                cmd_data[10] = 0.0
+                cmd_data[11] = 0.0
 
             # 6. 안전 체크
             if np.any(np.isnan(cmd_data)) or np.any(np.isinf(cmd_data)):
-                print("⚠️  IK 발산 → FREEZE")
+                print("[WARN] IK diverged -> FREEZE")
                 q = ros.get_current_q()
                 arm_filter.reset(q)
                 sync_target_q     = None
@@ -639,13 +681,13 @@ try:
             l_err = r_err = 0.0
 
         # 8. 손가락 publish
-        if config.USE_FINGER:
+        if config.USE_FINGER_FE or config.USE_FINGER_AA:
             left_lm  = tv.left_landmarks
             right_lm = tv.right_landmarks
             l_valid  = is_landmark_valid(left_lm)
             r_valid  = is_landmark_valid(right_lm)
 
-            # 디버그 모드: 실제 굽힘각 출력 (FINGER_DEBUG = True 시 활성화)
+            # 디버그 모드: 실시간 굽힘각 출력
             if config.FINGER_DEBUG and time.time() - _last_status_time > 0.3:
                 from finger_mapping import FINGER_ANGLE_POINTS, _flex_angle
                 finger_names = {1: "엄지", 2: "검지", 3: "중지", 4: "약지(로봇)←소지"}
@@ -667,10 +709,14 @@ try:
                 _left_lm  = left_lm  if l_valid else np.zeros((25, 3))
                 _right_lm = right_lm if r_valid else np.zeros((25, 3))
 
-                raw_finger_cmd = build_hand_cmd(_left_lm, _right_lm)
+                raw_finger_cmd = build_hand_cmd(
+                    _left_lm, _right_lm,
+                    use_fe=config.USE_FINGER_FE,
+                    use_aa=config.USE_FINGER_AA,
+                )
 
                 if not l_valid: raw_finger_cmd[:8]  = FINGER_NEUTRAL[:8]
-                if not r_valid: raw_finger_cmd[8:] = FINGER_NEUTRAL[8:]
+                if not r_valid: raw_finger_cmd[8:]  = FINGER_NEUTRAL[8:]
 
                 finger_cmd = finger_filter.filter(raw_finger_cmd)
                 if not (np.any(np.isnan(finger_cmd)) or np.any(np.isinf(finger_cmd))):
@@ -695,19 +741,26 @@ try:
             'r_joints': cmd_data[5:10],
         })
         if time.time() - _last_status_time > STATUS_INTERVAL:
-            arm_status = f"L err={l_err*100:.1f}cm  R err={r_err*100:.1f}cm" if config.USE_ARM else "USE_ARM=OFF"
-            finger_status = "FINGER=ON" if config.USE_FINGER else "FINGER=OFF"
-            print(f"  [TELEOP] {1/loop_time:.1f}Hz | {arm_status} | {finger_status}")
+            arm_s  = f"L={l_err*100:.1f}cm R={r_err*100:.1f}cm" if config.USE_ARM else "ARM=OFF"
+            fe_s   = "FE=ON"    if config.USE_FINGER_FE  else "FE=OFF"
+            aa_s   = "AA=ON"    if config.USE_FINGER_AA  else "AA=OFF"
+            if config.USE_NECK:
+                nk_s = "NECK=ON"
+            elif config.USE_NECK_TRACK:
+                nk_s = "NECK=TRACK"
+            else:
+                nk_s = "NECK=OFF"
+            print(f"[TELEOP] {1/loop_time:.1f}Hz | {arm_s} | {fe_s} {aa_s} | {nk_s}")
             if config.USE_ARM:
-                print(f"  [WRIST] l={np.degrees(l_wrist_yaw):.1f}°  r={np.degrees(r_wrist_yaw):.1f}°")
+                print(f"[WRIST]  L={np.degrees(l_wrist_yaw):+.1f}deg  R={np.degrees(r_wrist_yaw):+.1f}deg")
             _last_status_time = time.time()
 
 
 # ══════════════════════════════════════════════════════════════
-# 안전 종료
+# Safe shutdown
 # ══════════════════════════════════════════════════════════════
 except KeyboardInterrupt:
-    print("\n[Interrupt] Ctrl+C → 안전 종료 시작...")
+    print("\n[Interrupt] Ctrl+C received, shutting down...")
 
 finally:
     publish_fin(ros.pub_arm,
@@ -719,4 +772,4 @@ finally:
         shm.close()
         shm.unlink()
 
-    print("🧹 종료 완료")
+    print("[DONE] Shutdown complete")

@@ -9,7 +9,7 @@ import asyncio
 try:
     import sys, os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'webrtc'))
-    from zed_server import *
+    # from zed_server import *
 except ImportError as e:
     print(f"webrtc import 실패: {e}")
     pass
