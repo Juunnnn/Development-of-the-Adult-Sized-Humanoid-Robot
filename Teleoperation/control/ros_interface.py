@@ -21,6 +21,8 @@ import pinocchio as pin
 
 import config
 
+from std_msgs.msg import Float64MultiArray, Float32MultiArray  # Float32MultiArray 추가
+
 
 class RosInterface:
     """
@@ -55,8 +57,9 @@ class RosInterface:
         self.image_array = image_array
 
         self._current_joint_state = None
-        self._draw_buffer         = None  # 더블 버퍼 (깜박임 방지)
-        self._last_camera_time    = 0.0   # 마지막 카메라 프레임 수신 시각
+        self._draw_buffer         = None
+        self._last_camera_time    = 0.0
+        self.video_playing        = False   # True이면 카메라 콜백·오버레이 루프 억제
 
         # ── 오버레이 공유 데이터 ───────────────────────────
         self.overlay: dict = {
@@ -81,6 +84,8 @@ class RosInterface:
 
         self.pub_arm  = rospy.Publisher(config.TOPIC_ARM,  Float64MultiArray, queue_size=10)
         self.pub_hand = rospy.Publisher(config.TOPIC_HAND, Float64MultiArray, queue_size=10)
+
+        self.pub_amazing_hand = rospy.Publisher('/amazing_hand/finger_angles', Float32MultiArray, queue_size=10)
 
         rospy.Subscriber(config.TOPIC_CAMERA,       Image,      self._camera_callback)
         rospy.Subscriber(config.TOPIC_JOINT_STATES, JointState, self._joint_state_callback)
@@ -111,9 +116,11 @@ class RosInterface:
         """
         BG_COLOR = 30   # 어두운 회색 배경
         while True:
-            time.sleep(0.1)   # 10Hz
+            time.sleep(0.1)
+            if self.video_playing:
+                continue   # 영상 재생 중에는 오버레이 루프 스킵
             if time.time() - self._last_camera_time < 0.5:
-                continue   # 최근에 카메라 프레임 들어왔으면 스킵
+                continue
 
             # 버퍼 초기화 (최초 1회)
             if self._draw_buffer is None:
@@ -125,6 +132,8 @@ class RosInterface:
 
     # ── 카메라 콜백 ────────────────────────────────────────
     def _camera_callback(self, msg: Image):
+        if self.video_playing:
+            return   # 영상 재생 중에는 카메라 프레임이 영상을 덮어쓰지 못하도록 차단
         try:
             self._last_camera_time = time.time()   # 카메라 활성 시각 갱신
             frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
@@ -193,37 +202,37 @@ class RosInterface:
                 (gw, _), _ = cv2.getTextSize(guide, F, 0.85, 2)
                 cv2.putText(img, guide, (x0 + (W - gw) // 2, ny - nh - 20),
                             F, 0.85, (200, 200, 200), 2, cv2.LINE_AA)
+
+                # 로봇 손바닥 초기 위치 (카운트다운과 함께 표시)
+                if l_actual is not None or r_actual is not None:
+                    img[590:, x0:x0 + W] = (img[590:, x0:x0 + W] * 0.45).astype(np.uint8)
+
+                    header = "Robot palm position (align your hands here)"
+                    (hw, _), _ = cv2.getTextSize(header, F, 0.65, 1)
+                    cv2.putText(img, header, (x0 + (W - hw) // 2, 612),
+                                F, 0.65, (160, 160, 160), 1, cv2.LINE_AA)
+
+                    if l_actual is not None:
+                        ltxt = f"L  x:{l_actual[0]:+.2f}  y:{l_actual[1]:+.2f}  z:{l_actual[2]:+.2f} m"
+                        (lw, _), _ = cv2.getTextSize(ltxt, F, 0.8, 2)
+                        cv2.putText(img, ltxt, (x0 + (W - lw) // 2, 648),
+                                    F, 0.8, (60, 220, 60), 2, cv2.LINE_AA)
+
+                    if r_actual is not None:
+                        rtxt = f"R  x:{r_actual[0]:+.2f}  y:{r_actual[1]:+.2f}  z:{r_actual[2]:+.2f} m"
+                        (rw, _), _ = cv2.getTextSize(rtxt, F, 0.8, 2)
+                        cv2.putText(img, rtxt, (x0 + (W - rw) // 2, 684),
+                                    F, 0.8, (100, 180, 255), 2, cv2.LINE_AA)
+
+                    hint = "Green = Left arm   Blue = Right arm"
+                    (htw, _), _ = cv2.getTextSize(hint, F, 0.6, 1)
+                    cv2.putText(img, hint, (x0 + (W - htw) // 2, 714),
+                                F, 0.6, (130, 130, 130), 1, cv2.LINE_AA)
             else:
                 guide = "Waiting for Quest connection..."
                 (gw, _), _ = cv2.getTextSize(guide, F, 0.85, 2)
                 cv2.putText(img, guide, (x0 + (W - gw) // 2, 370),
                             F, 0.85, (200, 200, 200), 2, cv2.LINE_AA)
-
-            # ── 로봇 손바닥 초기 위치 (하단) ──────────────
-            if l_actual is not None or r_actual is not None:
-                img[590:, x0:x0 + W] = (img[590:, x0:x0 + W] * 0.45).astype(np.uint8)
-
-                header = "Robot palm position (align your hands here)"
-                (hw, _), _ = cv2.getTextSize(header, F, 0.65, 1)
-                cv2.putText(img, header, (x0 + (W - hw) // 2, 612),
-                            F, 0.65, (160, 160, 160), 1, cv2.LINE_AA)
-
-                if l_actual is not None:
-                    ltxt = f"L  x:{l_actual[0]:+.2f}  y:{l_actual[1]:+.2f}  z:{l_actual[2]:+.2f} m"
-                    (lw, _), _ = cv2.getTextSize(ltxt, F, 0.8, 2)
-                    cv2.putText(img, ltxt, (x0 + (W - lw) // 2, 648),
-                                F, 0.8, (60, 220, 60), 2, cv2.LINE_AA)
-
-                if r_actual is not None:
-                    rtxt = f"R  x:{r_actual[0]:+.2f}  y:{r_actual[1]:+.2f}  z:{r_actual[2]:+.2f} m"
-                    (rw, _), _ = cv2.getTextSize(rtxt, F, 0.8, 2)
-                    cv2.putText(img, rtxt, (x0 + (W - rw) // 2, 684),
-                                F, 0.8, (100, 180, 255), 2, cv2.LINE_AA)
-
-                hint = "Green = Left arm   Blue = Right arm"
-                (htw, _), _ = cv2.getTextSize(hint, F, 0.6, 1)
-                cv2.putText(img, hint, (x0 + (W - htw) // 2, 714),
-                            F, 0.6, (130, 130, 130), 1, cv2.LINE_AA)
 
         elif state == 'CALIBRATING':
             n          = ov.get('calib_n', 0)
@@ -373,3 +382,7 @@ class RosInterface:
         msg      = Float64MultiArray()
         msg.data = data
         self.pub_hand.publish(msg)
+
+        msg2      = Float32MultiArray()
+        msg2.data = [float(x) for x in data]
+        self.pub_amazing_hand.publish(msg2)

@@ -9,7 +9,7 @@ VR 텔레오퍼레이션 메인 상태 머신.
                                     ↑         ↓
                                  FREEZE ←────┘
 """
-import sys, os, json, time
+import sys, os, json, time, threading
 from multiprocessing import shared_memory, Queue, Event
 from enum import Enum, auto
 
@@ -30,6 +30,7 @@ from motion_utils import (EMAFilter, make_filters, beep,
                            publish_smooth_move, publish_init, publish_fin)
 from ros_interface import RosInterface
 from finger_mapping import (build_hand_cmd, is_landmark_valid, FingerEMAFilter)
+from quest_video import play_video_to_quest
 
 
 # ── 좌표 변환 헬퍼 ────────────────────────────────────────────
@@ -213,8 +214,19 @@ print("  HR Teleop")
 fe_s = "ON" if config.USE_FINGER_FE else "OFF"
 aa_s = "ON" if config.USE_FINGER_AA else "OFF"
 nk_s = "ON" if config.USE_NECK      else ("TRACK" if config.USE_NECK_TRACK else "OFF")
-print(f"  ARM={str(config.USE_ARM).upper()}  FINGER FE={fe_s}  FINGER AA={aa_s}  NECK={nk_s}")
+print(f"  ARM={str(config.USE_ARM).upper()}  FE={fe_s}  AA={aa_s}  NECK={nk_s}")
 print("=" * 44 + "\n")
+
+# ── 인트로 영상 재생 ──────────────────────────────────────────────
+# 영상이 끝나야 카운트다운이 시작됨.
+# VIDEO_PATH = None 이면 즉시 카운트다운.
+video_done     = threading.Event()
+_video_started = False
+_use_video     = config.USE_INTRO_VIDEO and bool(config.VIDEO_PATH)
+if not _use_video:
+    if config.USE_INTRO_VIDEO and not config.VIDEO_PATH:
+        print("[video] USE_INTRO_VIDEO=True but VIDEO_PATH is empty, skipping")
+    video_done.set()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -268,6 +280,27 @@ try:
 
         # ── WAITING_QUEST: 카운트다운 후 다음 상태 전환 ────
         if teleop_state == TeleopState.WAITING_QUEST:
+            # Quest 연결되면 영상을 딱 한 번 시작
+            if _use_video and not _video_started and not video_done.is_set():
+                _video_started = True
+                video_path = config.VIDEO_PATH
+                if os.path.exists(video_path):
+                    threading.Thread(
+                        target=play_video_to_quest,
+                        args=(image_array, video_path),
+                        kwargs={"ros": ros, "done_event": video_done},
+                        daemon=True,
+                    ).start()
+                    print(f"[video] Quest connected, starting video...")
+                else:
+                    print(f"[video] File not found, skipping: {video_path}")
+                    video_done.set()
+
+            if not video_done.is_set():
+                # 영상 재생 중 — 카운트다운 대기
+                time.sleep(1.0 / config.CONTROL_HZ)
+                continue
+
             if _countdown_start is None:
                 _countdown_start = time.time()
                 print(f"[WAIT] Quest connected. Starting in {int(config.TELEOP_START_DELAY)}s...")
@@ -690,16 +723,18 @@ try:
             # 디버그 모드: 실시간 굽힘각 출력
             if config.FINGER_DEBUG and time.time() - _last_status_time > 0.3:
                 from finger_mapping import FINGER_ANGLE_POINTS, _flex_angle
-                finger_names = {1: "엄지", 2: "검지", 3: "중지", 4: "약지(로봇)←소지"}
-                PINKY_RAW = (0, 21, 24)
+                finger_names = {1: "엄지", 2: "검지", 3: "중지", 4: "약지"}
+                PINKY_RAW = (0, 16, 19)
 
                 def _fmt(lm, side):
                     parts = []
                     for f in range(1, 5):
                         p = FINGER_ANGLE_POINTS[f]
                         parts.append(f"{side} {finger_names[f]}:{_flex_angle(lm[p[0]], lm[p[1]], lm[p[2]]):.0f}°")
-                    pinky_flex = _flex_angle(lm[PINKY_RAW[0]], lm[PINKY_RAW[1]], lm[PINKY_RAW[2]])
-                    parts.append(f"{side} 소지(Quest):{pinky_flex:.0f}°")
+                    # 소지는 별도 표시 (참고용)
+                    PINKY_ACTUAL = (0, 21, 24)
+                    pinky_flex = _flex_angle(lm[PINKY_ACTUAL[0]], lm[PINKY_ACTUAL[1]], lm[PINKY_ACTUAL[2]])
+                    parts.append(f"{side} 소지(참고):{pinky_flex:.0f}°")
                     return parts
 
                 if l_valid: print("  [FLEX]", "  ".join(_fmt(left_lm,  "L")))

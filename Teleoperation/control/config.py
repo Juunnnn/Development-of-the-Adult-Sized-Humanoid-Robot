@@ -32,10 +32,10 @@ KEY_FILE  = os.path.join(TELEVISION_DIR, 'key.pem')
 USE_ARM = True
 
 # 손가락 굽힘/펼침(FE) 트래킹. False면 FE는 NEUTRAL 유지.
-USE_FINGER_FE = False
+USE_FINGER_FE = True
 # 손가락 옆벌림/모음(AA) 트래킹. False면 AA는 0 유지.
 # USE_FINGER_FE가 False여도 USE_FINGER_AA만 True로 켤 수 있음.
-USE_FINGER_AA = False
+USE_FINGER_AA = True
 
 # 목 회전 트래킹. False면 목 관절 0으로 고정.
 USE_NECK = False
@@ -47,6 +47,12 @@ USE_NECK_TRACK = True
 FINGER_DEBUG = False
 # Quest 3D 구체 오버레이 표시 여부.
 USE_SPHERE = True
+
+# ── 인트로 영상 설정 ──────────────────────────────────────────
+# Quest 연결 직후 이 영상을 재생하고, 끝나면 카운트다운을 시작함.
+# False로 끄면 Quest 연결 즉시 카운트다운 시작.
+USE_INTRO_VIDEO = True
+VIDEO_PATH      = '/home/teleopstation/Downloads/exia_startup.mp4'
 
 
 # ══════════════════════════════════════════════════════════════
