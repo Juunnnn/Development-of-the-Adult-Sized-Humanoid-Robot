@@ -29,7 +29,7 @@ Teleoperation/
     ├── motion_utils.py          # EMA filter, beep, smooth pose transitions
     ├── ros_interface.py         # ROS publishers/subscribers + camera overlay
     ├── finger_mapping.py        # Hand landmark → finger joint angles
-    ├── mimic_fe_follower.py     # FE_follower mimic node (run separately)
+    ├── quest_video.py           # Quest video feed handler
     └── calib.json               # Arm calibration data (auto-generated on first run)
 ```
 
@@ -169,7 +169,6 @@ The following data is saved to `calib.json`:
 
 ```bash
 xrcalib         # Delete calib.json (triggers re-calibration on next run)
-xrcaliball      # Delete all calibration files
 ```
 
 ---
@@ -230,7 +229,7 @@ Linearly mapped to FE joint angle:
 [L_AA_1, L_FE_1, L_AA_2, L_FE_2, L_AA_3, L_FE_3, L_AA_4, L_FE_4,
  R_AA_1, R_FE_1, R_AA_2, R_FE_2, R_AA_3, R_FE_3, R_AA_4, R_FE_4]
 ```
-Finger numbering: 1=Thumb, 2=Index, 3=Middle, 4=Ring (mapped from Pinky landmark).
+Finger numbering: 1=Thumb, 2=Index, 3=Middle, 4=Ring.
 
 **Tuning** (in `finger_mapping.py`):
 

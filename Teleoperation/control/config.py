@@ -29,7 +29,7 @@ KEY_FILE  = os.path.join(TELEVISION_DIR, 'key.pem')
 
 # ── 서브시스템 활성화 플래그 ──────────────────────────────────
 # 팔 트래킹. False면 IK 계산 없이 현재 자세 유지.
-USE_ARM = True
+USE_ARM = False
 
 # 손가락 굽힘/펼침(FE) 트래킹. False면 FE는 NEUTRAL 유지.
 USE_FINGER_FE = True
@@ -38,10 +38,10 @@ USE_FINGER_FE = True
 USE_FINGER_AA = True
 
 # 목 회전 트래킹. False면 목 관절 0으로 고정.
-USE_NECK = False
+USE_NECK = True
 # 손 중점을 바라보는 목 트래킹 모드 (USE_NECK=False일 때 유효).
 # Quest 양손 위치 중점을 향해 neck yaw/pitch를 자동 계산.
-USE_NECK_TRACK = True
+USE_NECK_TRACK = False
 
 # 손가락 굽힘각 실시간 출력 (튜닝용). True로 켜면 터미널에 각도 출력.
 FINGER_DEBUG = False
