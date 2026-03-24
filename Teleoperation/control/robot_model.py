@@ -274,3 +274,66 @@ def calc_target_from_calib(l_raw, r_raw,
     l_target = quest_to_robot(l_raw, quest_L_init, robot_L_init)
     r_target = quest_to_robot(r_raw, quest_R_init, robot_R_init)
     return l_target, r_target
+
+# ══════════════════════════════════════════════════════════════
+# 역방향 좌표 변환: 로봇 → Quest (구체 오버레이용)
+# ══════════════════════════════════════════════════════════════
+# 아래 세 함수는 원래 HR_teleop.py 최상단에 있던 것들입니다.
+# 로봇 모델/좌표계 관련 계산이므로 robot_model.py로 이동했습니다.
+
+def robot_to_quest(robot_pos: np.ndarray,
+                   robot_init: np.ndarray,
+                   quest_init: np.ndarray) -> np.ndarray:
+    """
+    로봇 좌표계의 손바닥 위치를 Quest 좌표계로 역변환합니다.
+    Quest 구체 오버레이에서 '로봇 손바닥이 지금 어디에 있는지'를
+    Quest 공간에 표시할 때 사용합니다.
+
+    quest_to_robot()의 역연산:
+      robot delta = pos - robot_init
+      quest = quest_init + [-delta[1], delta[2], -delta[0]]
+    """
+    delta = robot_pos - robot_init
+    return quest_init + np.array([-delta[1], delta[2], -delta[0]])
+
+
+def robot_dir_to_quest(rot_matrix: np.ndarray, side: str) -> np.ndarray:
+    """
+    로봇 손바닥 법선 벡터를 Quest 좌표계로 변환합니다.
+    Quest 구체 오버레이의 손바닥 방향 화살표에 사용합니다.
+
+    URDF 기준:
+      오른손 손바닥 법선 → wrist_yaw 프레임의 +Y축
+      왼손  손바닥 법선 → wrist_yaw 프레임의 -Y축
+
+    Parameters
+    ----------
+    rot_matrix : 손바닥 프레임 rotation 행렬 (FK 결과)
+    side       : 'L' 또는 'R'
+    """
+    palm_normal = rot_matrix[:, 1] if side == 'R' else -rot_matrix[:, 1]
+    return np.array([-palm_normal[1], palm_normal[2], -palm_normal[0]])
+
+
+def fk_palm_pose(model, data, frame_id: int,
+                 q_vals: list) -> tuple:
+    """
+    특정 관절각(q_vals)에서 지정 프레임의 rotation·translation을 계산합니다.
+    초기화 시 CALIB_POS/INIT_POS에서의 손바닥 pose를 사전계산하는 데 사용합니다.
+
+    Parameters
+    ----------
+    q_vals : config.JOINT_ORDER 순서의 관절각 리스트 (12개)
+
+    Returns
+    -------
+    (rotation, translation) : (3×3 ndarray, (3,) ndarray)
+    """
+    q_tmp = pin.neutral(model)
+    for name, val in zip(config.JOINT_ORDER, q_vals):
+        if model.existJointName(name):
+            jid = model.getJointId(name)
+            q_tmp[model.joints[jid].idx_q] = val
+    pin.forwardKinematics(model, data, q_tmp)
+    pin.updateFramePlacements(model, data)
+    return data.oMf[frame_id].rotation.copy(), data.oMf[frame_id].translation.copy()

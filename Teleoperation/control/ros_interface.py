@@ -60,6 +60,7 @@ class RosInterface:
         self._draw_buffer         = None
         self._last_camera_time    = 0.0
         self.video_playing        = False   # True이면 카메라 콜백·오버레이 루프 억제
+        self._buf_lock            = threading.Lock()  # _draw_buffer / image_array 동시 접근 방지
 
         # ── 오버레이 공유 데이터 ───────────────────────────
         self.overlay: dict = {
@@ -86,6 +87,9 @@ class RosInterface:
         self.pub_hand = rospy.Publisher(config.TOPIC_HAND, Float64MultiArray, queue_size=10)
 
         self.pub_amazing_hand = rospy.Publisher('/amazing_hand/finger_angles', Float32MultiArray, queue_size=10)
+
+        # 목 전용 publisher (젯슨 neck_dynamixel_node 수신용)
+        self.pub_neck = rospy.Publisher('/neck_controller/command', Float64MultiArray, queue_size=1)
 
         rospy.Subscriber(config.TOPIC_CAMERA,       Image,      self._camera_callback)
         rospy.Subscriber(config.TOPIC_JOINT_STATES, JointState, self._joint_state_callback)
@@ -128,7 +132,8 @@ class RosInterface:
 
             self._draw_buffer[:] = BG_COLOR
             self._draw_overlay(self._draw_buffer)
-            np.copyto(self.image_array, self._draw_buffer)
+            with self._buf_lock:
+                np.copyto(self.image_array, self._draw_buffer)
 
     # ── 카메라 콜백 ────────────────────────────────────────
     def _camera_callback(self, msg: Image):
@@ -149,7 +154,8 @@ class RosInterface:
             self._draw_overlay(self._draw_buffer)
 
             # 완성된 프레임을 한 번에 복사 → 깜박임 방지
-            np.copyto(self.image_array, self._draw_buffer)
+            with self._buf_lock:
+                np.copyto(self.image_array, self._draw_buffer)
 
         except Exception as e:
             print(f"카메라 오류: {e}")
@@ -377,6 +383,12 @@ class RosInterface:
         msg      = Float64MultiArray()
         msg.data = data
         self.pub_arm.publish(msg)
+
+    def publish_neck(self, yaw: float, pitch: float):
+        """목 관절각을 /neck_controller/command 토픽으로 전송 (젯슨 수신용)."""
+        msg      = Float64MultiArray()
+        msg.data = [float(yaw), float(pitch)]
+        self.pub_neck.publish(msg)
 
     def publish_hand(self, data: list):
         msg      = Float64MultiArray()

@@ -112,13 +112,22 @@ FINGER_AA_POINTS: dict[int, tuple[int, int]] = {
     4: (16, 17),   # 약지 MCP→PIP ← 소지에서 약지로 변경!
 }
 
-# 손가락별 AA 부호 (+1 또는 -1)
-#   실측 결과 검지·중지·약지(소지)는 손바닥 프레임 x축 방향이 반전되어 있음
+# ── 손가락별 AA 부호 튜닝 ────────────────────────────────────────
+#
+#   palm frame 기준:
+#     lx = 손가락 뻗는 방향 (중립 ≈ 1.0)
+#     ly = 왼손: 소지 방향 = +,  오른손: 검지 방향 = +
+#
+#   튜닝 방법:
+#     1. 손가락을 소지 방향으로 벌린다
+#     2. 로봇 손가락이 반대로 움직이면 해당 손가락 부호를 반전 (+1 ↔ -1)
+#
+#   손가락 번호: 1=엄지, 2=검지, 3=중지, 4=약지
 AA_SIGN: dict[int, float] = {
-    1: +1.0,   # 엄지
-    2: -1.0,   # 검지 (반전)
-    3: -1.0,   # 중지 (반전)
-    4: -1.0,   # 약지←소지 (반전)
+    1: -1.0,   # 엄지
+    2: -1.0,   # 검지
+    3: -1.0,   # 중지
+    4: -1.0,   # 약지←소지
 }
 
 # AA 계산용 손바닥 프레임 landmark 인덱스
@@ -166,31 +175,54 @@ def _flex_to_fe(flex_deg: float, f: int) -> float:
 # §3  AA 계산 (USE_AA=True 시 활성화)
 # ══════════════════════════════════════════════════════════════════
 
-def _palm_frame(lm: np.ndarray) -> np.ndarray:
-    """손바닥 로컬 좌표계 회전행렬 R_palm (3×3) 반환."""
-    y_vec = lm[MIDDLE_MCP] - lm[WRIST_IDX]
-    pl = np.linalg.norm(y_vec)
-    if pl < 1e-6:
-        return np.eye(3)
-    y_axis = y_vec / pl
+def _palm_frame(lm: np.ndarray, is_left: bool) -> np.ndarray:
+    """손바닥 로컬 좌표계 회전행렬 R_palm (3×3) 반환.
 
-    v1, v2 = lm[INDEX_MCP] - lm[WRIST_IDX], lm[PINKY_MCP] - lm[WRIST_IDX]
-    z_raw  = np.cross(v1, v2)
-    zn     = np.linalg.norm(z_raw)
+    축 정의 (손바닥이 나를 향할 때 기준):
+      x = Wrist → MiddleMCP  (손가락 뻗는 방향)
+      z = cross(v_index, v_pinky) [왼손]
+        = cross(v_pinky, v_index) [오른손]
+        → 양손 모두 손바닥 밖으로 나오는 방향
+      y = cross(x, z)
+        → 왼손: 소지 방향, 오른손: 검지 방향
+    """
+    # x: 손가락 뻗는 방향
+    x_raw = lm[MIDDLE_MCP] - lm[WRIST_IDX]
+    xn = np.linalg.norm(x_raw)
+    if xn < 1e-6:
+        return np.eye(3)
+    x_axis = x_raw / xn
+
+    # z: 손바닥 밖으로 (양손 동일)
+    v_index = lm[INDEX_MCP] - lm[WRIST_IDX]
+    v_pinky = lm[PINKY_MCP] - lm[WRIST_IDX]
+    z_raw = np.cross(v_index, v_pinky) if is_left else np.cross(v_pinky, v_index)
+    zn = np.linalg.norm(z_raw)
     z_axis = z_raw / zn if zn > 1e-6 else np.array([0., 0., 1.])
 
-    x_raw  = np.cross(y_axis, z_axis)
-    xn     = np.linalg.norm(x_raw)
-    x_axis = x_raw / xn if xn > 1e-6 else np.array([1., 0., 0.])
-    z_axis = np.cross(x_axis, y_axis)
+    # y: cross(x, z)  →  왼손=소지방향, 오른손=검지방향
+    y_raw = np.cross(x_axis, z_axis)
+    yn = np.linalg.norm(y_raw)
+    y_axis = y_raw / yn if yn > 1e-6 else np.array([0., 1., 0.])
 
     return np.column_stack([x_axis, y_axis, z_axis])
 
 
 def _compute_aa(lm: np.ndarray, f: int, R_palm: np.ndarray, is_left: bool) -> float:
-    """손바닥 로컬 프레임에서 MCP→PIP 벡터의 가로 성분으로 AA 계산.
-    Tip 대신 PIP를 사용해 손가락 구부림(FE)에 의한 오염을 최소화.
-    손가락별 부호(AA_SIGN)와 좌/우 반전을 적용."""
+    """손바닥 로컬 프레임에서 MCP→PIP 벡터로 AA 계산.
+
+    새 palm frame 기준:
+      lx = 새 x축 성분 = 손가락 뻗는 방향 (중립일 때 ≈ 1.0)
+      ly = 새 y축 성분 = 가로 방향 (검지 방향 = +ly, 양손 동일 기준)
+
+    arctan2(ly, lx):
+      중립:      ly≈0, lx≈1  →  0°
+      검지 방향: ly > 0       →  양수
+      소지 방향: ly < 0       →  음수
+
+    is_left 부호 반전 불필요 (z축을 양손 동일 방향으로 정의했으므로).
+    AA_SIGN은 URDF 관절 양수 방향과의 매칭을 위한 보정.
+    """
     mcp_i, pip_i = FINGER_AA_POINTS[f]
     vec = lm[pip_i] - lm[mcp_i]
     d = np.linalg.norm(vec)
@@ -198,10 +230,8 @@ def _compute_aa(lm: np.ndarray, f: int, R_palm: np.ndarray, is_left: bool) -> fl
         return 0.0
     tip_local = R_palm.T @ (vec / d)
     lx, ly = float(tip_local[0]), float(tip_local[1])
-    aa = float(np.arctan2(lx, ly)) if np.hypot(lx, ly) > AA_XY_THRESH else 0.0
-    aa *= AA_SIGN[f]           # 손가락별 부호 적용
-    if not is_left:
-        aa = -aa               # 오른손 좌우 반전
+    aa = float(np.arctan2(ly, lx)) if np.hypot(lx, ly) > AA_XY_THRESH else 0.0
+    aa *= AA_SIGN[f]
     return float(np.clip(aa, AA_MIN, AA_MAX))
 
 
@@ -218,7 +248,7 @@ def _retarget_hand(lm: np.ndarray, is_left: bool,
     use_fe : FE(굽힘/펼침) 계산 활성화. False면 FE=0 고정.
     use_aa : AA(옆벌림/모음) 계산 활성화. False면 AA=0 고정.
     """
-    R_palm = _palm_frame(lm) if use_aa else None
+    R_palm = _palm_frame(lm, is_left) if use_aa else None
     cmd = np.zeros(8)
     for f in range(1, 5):
         if use_fe:

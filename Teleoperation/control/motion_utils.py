@@ -10,7 +10,7 @@ motion_utils.py
 - publish_init / publish_fin: 초기/종료 자세로 이동하는 단축 함수
 """
 
-import os
+import subprocess
 import time
 import numpy as np
 from std_msgs.msg import Float64MultiArray
@@ -42,9 +42,8 @@ class EMAFilter:
       neck_filter        : 0.3  목 회전 (목은 과하게 움직이면 이상해서 강하게 스무딩)
     """
 
-    def __init__(self, alpha: float, size: int):
+    def __init__(self, alpha: float):
         self.alpha = alpha
-        self.size  = size
         self.prev  = None  # 첫 프레임에는 prev가 없으므로 None으로 초기화
 
     def filter(self, q_new: np.ndarray) -> np.ndarray:
@@ -81,12 +80,12 @@ def make_filters() -> dict:
     'neck'        : 목 yaw/pitch 스무딩
     """
     return {
-        'arm':         EMAFilter(config.EMA_ARM,       size=1),
-        'wrist_l':     EMAFilter(config.EMA_WRIST,     size=1),
-        'wrist_r':     EMAFilter(config.EMA_WRIST,     size=1),
-        'quest_pos_l': EMAFilter(config.EMA_QUEST_POS, size=3),
-        'quest_pos_r': EMAFilter(config.EMA_QUEST_POS, size=3),
-        'neck':        EMAFilter(config.EMA_NECK,      size=2),
+        'arm':         EMAFilter(config.EMA_ARM),
+        'wrist_l':     EMAFilter(config.EMA_WRIST),
+        'wrist_r':     EMAFilter(config.EMA_WRIST),
+        'quest_pos_l': EMAFilter(config.EMA_QUEST_POS),
+        'quest_pos_r': EMAFilter(config.EMA_QUEST_POS),
+        'neck':        EMAFilter(config.EMA_NECK),
     }
 
 
@@ -97,7 +96,7 @@ def make_filters() -> dict:
 def beep(kind: str = 'warn'):
     """
     상태 전환 시 소리로 알림을 줍니다.
-    paplay를 백그라운드(&)로 실행하므로 메인 루프를 블로킹하지 않음.
+    subprocess.Popen으로 논블로킹 실행하므로 메인 루프를 블로킹하지 않음.
 
     kind 값과 재생 시점:
       'teleop_start' → 텔레옵 첫 시작 (SYNCING → TELEOP, 최초 1회)
@@ -108,7 +107,11 @@ def beep(kind: str = 'warn'):
     """
     path = config.SOUND.get(kind)
     if path:
-        os.system(f'paplay {path} &')
+        subprocess.Popen(
+            ['paplay', path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -145,7 +148,7 @@ def publish_smooth_move(pub, target_vals: list, current_vals: list = None,
     steps = int(duration * hz)
     print(f"🎬 {duration}초 동안 [{label}] 자세로 부드럽게 이동합니다...")
     for i in range(1, steps + 1):
-        t     = i / steps  # 0~1 선형 비율
+        t      = i / steps  # 0~1 선형 비율
         interp = [c + (g - c) * t for c, g in zip(current_vals, target_vals)]
         cmd      = Float64MultiArray()
         cmd.data = interp

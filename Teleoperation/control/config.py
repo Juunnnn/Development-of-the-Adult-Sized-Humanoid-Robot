@@ -29,7 +29,7 @@ KEY_FILE  = os.path.join(TELEVISION_DIR, 'key.pem')
 
 # ── 서브시스템 활성화 플래그 ──────────────────────────────────
 # 팔 트래킹. False면 IK 계산 없이 현재 자세 유지.
-USE_ARM = False
+USE_ARM = True
 
 # 손가락 굽힘/펼침(FE) 트래킹. False면 FE는 NEUTRAL 유지.
 USE_FINGER_FE = True
