@@ -52,7 +52,7 @@ USE_SPHERE = True
 # Quest 연결 직후 이 영상을 재생하고, 끝나면 카운트다운을 시작함.
 # False로 끄면 Quest 연결 즉시 카운트다운 시작.
 USE_INTRO_VIDEO = True
-VIDEO_PATH      = '/home/teleopstation/Downloads/exia_startup.mp4'
+VIDEO_PATH      = '/home/teleopstation/Downloads/exia_startup_2.mp4'
 
 
 # ══════════════════════════════════════════════════════════════
@@ -83,10 +83,10 @@ JOINT_ORDER = [
 ]
 
 # 종료 자세: Ctrl+C 시 이 자세로 복귀 (팔꿈치 접힌 편안한 자세)
-INIT_POS  = [-1.0472, -0.0872, 0, -1.57, 0,  -1.0472, 0.0872, 0, -1.57, 0,  0, 0]
+INIT_POS  = [0, 0, 0, -1.57, 0, 0, 0, 0, -1.57, 0,  0, 0]
 
 # 캘리브레이션 자세: 양팔 앞으로 나란히
-CALIB_POS = [-1.57, 0, 0, 0, 0,  -1.57, 0, 0, 0, 0,  0, 0]
+CALIB_POS = [-1.57, 0.2618, 0, 0, 0,  -1.57, -0.2618, 0, 0, 0,  0, 0]
 
 # 손바닥 가상 프레임 오프셋 (wrist_yaw → 손바닥 중심까지 z축 거리)
 PALM_Z_OFFSET = -0.11815  # [m]

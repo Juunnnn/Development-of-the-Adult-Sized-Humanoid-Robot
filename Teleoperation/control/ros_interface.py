@@ -79,6 +79,7 @@ class RosInterface:
             'r_err':            None,
             'l_joints':         [],
             'r_joints':         [],
+            'neck_warn':        '',   # 'YAW' | 'PITCH' | 'BOTH' | ''
         }
 
         rospy.init_node('teleop_ik', disable_signals=True)
@@ -292,6 +293,16 @@ class RosInterface:
 
         elif state == 'TELEOP':
             self._draw_hand_info(img, x0, W, ov)
+            # 목 한계 경고 (화면 정중앙)
+            neck_warn = ov.get('neck_warn', '')
+            if neck_warn:
+                warn_txt = f"WARNING: Neck {neck_warn} Limit Reached"
+                (tw, th), _ = cv2.getTextSize(warn_txt, F, 0.8, 2)
+                cx = x0 + (W - tw) // 2
+                cy = 370
+                cv2.rectangle(img, (cx - 8, cy - th - 6), (cx + tw + 8, cy + 8), (20, 20, 20), -1)
+                cv2.putText(img, warn_txt, (cx, cy),
+                            F, 0.8, (255, 69, 0), 2, cv2.LINE_AA)
 
     def _draw_progress_bar(self, img, x, y, w, h, frac, color):
         """진행 바: 배경(회색) 위에 채워진 사각형."""

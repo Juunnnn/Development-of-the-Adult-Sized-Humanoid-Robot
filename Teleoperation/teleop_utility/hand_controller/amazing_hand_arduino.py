@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""
+/amazing_hand/finger_angles → Arduino SG90 시리얼 제어 (양손)
+아두이노 형식: "L1,L2,...,L8/R1,R2,...,R8\n"
+왼손 보드: 0x40, 오른손 보드: 0x41
+"""
+import rospy
+from std_msgs.msg import Float32MultiArray
+import serial
+import numpy as np
+import time
+
+SERIAL_PORT = '/dev/ttyACM0'
+BAUD_RATE   = 115200
+
+# ── 튜닝 파라미터 ──────────────────────────────────────────
+ALPHA    = 0.2   # EMA 필터 (낮을수록 부드러움)
+# Arduino maxStep은 아두이노 코드에서 설정
+# ──────────────────────────────────────────────────────────
+
+MIDDLE_POS = [3, 0, -5, -8, -2, 5, -12, 0]
+
+# 오른손 매핑: 검지, 중지, 약지, 엄지
+R_fe_indices = [11, 13, 15, 9]
+R_aa_indices = [10, 12, 14, 8]
+R_FE_OPEN    = [0.0, 0.0, 0.0, 0.0]
+
+# 왼손 매핑: 검지, 중지, 약지, 엄지
+L_fe_indices = [3, 5, 7, 1]
+L_aa_indices = [2, 4, 6, 0]
+L_FE_OPEN    = [0.192, 0.209, 0.157, 0.070]
+
+current_servo_angles = [90.0] * 16  # 0~7: 오른손, 8~15: 왼손
+
+ser = None
+
+def compute_servo(angles, fe_indices, aa_indices, fe_open, is_left=False):
+    servo_angles = [90.0] * 8
+    for i in range(4):
+        fe = float(angles[fe_indices[i]]) - fe_open[i]
+        aa = float(angles[aa_indices[i]])
+
+        if is_left:
+            motor1_deg = np.degrees(-fe - aa)
+            motor2_deg = np.degrees( fe - aa)
+        else:
+            motor1_deg = np.degrees( fe - aa)
+            motor2_deg = np.degrees(-fe - aa)
+
+        servo_angles[i*2]   = float(np.clip(90 + MIDDLE_POS[i*2]   + motor1_deg, 0, 180))
+        servo_angles[i*2+1] = float(np.clip(90 + MIDDLE_POS[i*2+1] + motor2_deg, 0, 180))
+    return servo_angles
+
+def angles_callback(msg):
+    global current_servo_angles
+    if len(msg.data) != 16 or ser is None or not ser.is_open:
+        return
+
+    angles = np.array(msg.data)
+
+    r_servos = compute_servo(angles, R_fe_indices, R_aa_indices, R_FE_OPEN, is_left=False)
+    l_servos = compute_servo(angles, L_fe_indices, L_aa_indices, L_FE_OPEN, is_left=True)
+
+    # EMA 필터
+    for i in range(8):
+        current_servo_angles[i]   = ALPHA * r_servos[i] + (1-ALPHA) * current_servo_angles[i]
+        current_servo_angles[i+8] = ALPHA * l_servos[i] + (1-ALPHA) * current_servo_angles[i+8]
+
+    r_final = [int(a) for a in current_servo_angles[:8]]
+    l_final = [int(a) for a in current_servo_angles[8:]]
+
+    # 형식: "L1,L2,...,L8/R1,R2,...,R8\n"
+    l_str = ','.join(map(str, l_final))
+    r_str = ','.join(map(str, r_final))
+    cmd = f"{l_str}/{r_str}\n"
+
+    rospy.loginfo_throttle(1.0, f"R: {r_final}\nL: {l_final}")
+    ser.write(cmd.encode())
+
+def main():
+    global ser
+    rospy.init_node('amazing_hand_arduino')
+
+    try:
+        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        time.sleep(2)
+        rospy.loginfo(f"Arduino 연결: {SERIAL_PORT}")
+        resp = ser.readline()
+        rospy.loginfo(f"Arduino: {resp.decode().strip()}")
+
+        # 초기 펼침 자세
+        # 왼손: 70,110 / 오른손: 110,70
+        ser.write(b'70,110,70,110,70,110,70,110/110,70,110,70,110,70,110,70\n')
+        rospy.loginfo("초기 자세: 양손 펼침")
+        time.sleep(1)
+
+    except Exception as e:
+        rospy.logerr(f"Arduino 연결 실패: {e}")
+        return
+
+    rospy.Subscriber('/amazing_hand/finger_angles', Float32MultiArray, angles_callback)
+    rospy.loginfo("Amazing Hand Arduino 노드 시작 (양손)")
+    rospy.spin()
+
+    if ser:
+        ser.close()
+
+if __name__ == '__main__':
+    main()

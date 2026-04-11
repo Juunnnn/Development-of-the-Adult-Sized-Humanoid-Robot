@@ -721,6 +721,7 @@ class TeleopController:
         self.cmd_data[4] = l_wrist_filt
         self.cmd_data[9] = r_wrist_filt
         self._apply_neck(self.cmd_data)
+        self._update_neck_warn(self.cmd_data)
         self.ros.publish_neck(self.cmd_data[10], self.cmd_data[11])  # 젯슨으로 목 각도 전송
 
         # 6. 안전 체크 (NaN/Inf → FREEZE)
@@ -772,6 +773,26 @@ class TeleopController:
 
         cmd_data[10] = 0.0
         cmd_data[11] = 0.0
+
+    def _update_neck_warn(self, cmd_data: list):
+        """목 관절이 한계의 90% 이상이면 overlay에 경고 세팅."""
+        yaw_limit   = self.model.upperPositionLimit[self.joint_ids[10]]
+        pitch_limit = self.model.upperPositionLimit[self.joint_ids[11]]
+        THRESH = 0.9
+
+        at_yaw   = abs(cmd_data[10]) >= THRESH * yaw_limit
+        at_pitch = abs(cmd_data[11]) >= THRESH * pitch_limit
+
+        if at_yaw and at_pitch:
+            warn = 'YAW + PITCH'
+        elif at_yaw:
+            warn = 'YAW'
+        elif at_pitch:
+            warn = 'PITCH'
+        else:
+            warn = ''
+
+        self.ros.overlay['neck_warn'] = warn
 
     def _calibrate_aa_offset(self):
         """TELEOP 시작 시 현재 손 자세를 AA 기준점(0°)으로 설정.
