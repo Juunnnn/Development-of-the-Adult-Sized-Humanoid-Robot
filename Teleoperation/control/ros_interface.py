@@ -16,13 +16,31 @@ import numpy as np
 import cv2
 import rospy
 from std_msgs.msg import Float64MultiArray
-from sensor_msgs.msg import Image, JointState
+from sensor_msgs.msg import Image, CompressedImage, JointState
 import pinocchio as pin
 
 import config
 
-from std_msgs.msg import Float64MultiArray, Float32MultiArray  # Float32MultiArray 추가
+from std_msgs.msg import Float64MultiArray, Float32MultiArray, Bool  # Float32MultiArray, Bool 추가
 
+# 파일 상단, import 근처에 추가
+JOINT_NAME_REMAP = {
+    'L_elbow_joint': 'L_elbow_pitch_joint',
+    'R_elbow_joint': 'R_elbow_pitch_joint',
+}
+
+# ── 눈 하나당 버퍼 해상도 (HR_teleop.py의 RES와 일치해야 함) ──
+EYE_W = 1280
+EYE_H = 720
+
+# ── 카메라 토픽 방식 선택 ─────────────────────────────
+# True  : /camera/color/image_raw/compressed (JPEG, ~3MB/s)  ← 대역폭 절감
+# False : /camera/color/image_raw            (무압축, ~55MB/s) ← 기존 동작
+# 압축 토픽에서 화면이 안 나오면 False로 바꿔 즉시 기존 동작으로 복귀 가능.
+USE_COMPRESSED_CAMERA = True
+
+# config.py에 아래 두 줄 추가하고 여기서 import해서 씀
+# JOINT_SANITY_RANGE = {name: (lo, hi) for name, lo, hi in zip(...)}  ← 4번 항목에서 설명
 
 class RosInterface:
     """
@@ -59,6 +77,11 @@ class RosInterface:
         self._current_joint_state = None
         self._draw_buffer         = None
         self._last_camera_time    = 0.0
+        self._decode_fail         = 0      # JPEG 디코딩 실패 누적
+        self._frame_ok            = False  # 첫 프레임 수신 여부
+        self._cam_warned          = False  # 무프레임 경고 1회 출력용
+        self._start_time          = time.time()
+        self._fit_geom            = None   # 레터박스 배치 캐시 ((h,w), nw, nh, ox, oy)
         self.video_playing        = False   # True이면 카메라 콜백·오버레이 루프 억제
         self._buf_lock            = threading.Lock()  # _draw_buffer / image_array 동시 접근 방지
 
@@ -80,20 +103,36 @@ class RosInterface:
             'l_joints':         [],
             'r_joints':         [],
             'neck_warn':        '',   # 'YAW' | 'PITCH' | 'BOTH' | ''
+            'torso_yaw':        0.0,  # 현재 torso yaw 값 [rad]
+            'torso_state':      '',   # 'COMP' | 'RETURN' | ''
+            'grasp_state':      False,  # 젯슨 그리퍼 grasp 판정 결과
         }
 
-        rospy.init_node('teleop_ik', disable_signals=True)
+        # rospy.init_node('teleop_ik', disable_signals=True)
+        rospy.init_node('teleop_ik', anonymous=True, disable_signals=True)
 
-        self.pub_arm  = rospy.Publisher(config.TOPIC_ARM,  Float64MultiArray, queue_size=10)
-        self.pub_hand = rospy.Publisher(config.TOPIC_HAND, Float64MultiArray, queue_size=10)
+        self.pub_arm  = rospy.Publisher(config.TOPIC_ARM,   Float64MultiArray, queue_size=10)
+        self.pub_hand = rospy.Publisher(config.TOPIC_HAND,  Float64MultiArray, queue_size=10)
+        self.pub_torso = rospy.Publisher(config.TOPIC_TORSO, Float64MultiArray, queue_size=1)
 
         self.pub_amazing_hand = rospy.Publisher('/amazing_hand/finger_angles', Float32MultiArray, queue_size=10)
 
         # 목 전용 publisher (젯슨 neck_dynamixel_node 수신용)
         self.pub_neck = rospy.Publisher('/neck_controller/command', Float64MultiArray, queue_size=1)
 
-        rospy.Subscriber(config.TOPIC_CAMERA,       Image,      self._camera_callback)
+        # 그리퍼(오른손) 전용 publisher — 목과 같은 젯슨 노드(neck_dynamixel_node)가
+        # 같은 U2D2 버스에서 함께 처리 (아래 publish_gripper 참고)
+        self.pub_gripper = rospy.Publisher('/gripper_controller/command', Float64MultiArray, queue_size=1)
+
+        if USE_COMPRESSED_CAMERA:
+            _cam_topic = config.TOPIC_CAMERA.rstrip('/') + '/compressed'
+            rospy.Subscriber(_cam_topic, CompressedImage, self._camera_callback)
+        else:
+            _cam_topic = config.TOPIC_CAMERA
+            rospy.Subscriber(_cam_topic, Image, self._camera_callback_raw)
+        print(f"[camera] 구독 토픽: {_cam_topic}  (compressed={USE_COMPRESSED_CAMERA})")
         rospy.Subscriber(config.TOPIC_JOINT_STATES, JointState, self._joint_state_callback)
+        rospy.Subscriber(config.TOPIC_GRIPPER_STATUS, Bool,     self._grasp_status_callback)
 
         # ── 카메라 없을 때도 오버레이를 그리는 백그라운드 스레드 ──
         # 카메라가 꺼져 있으면 _camera_callback이 한 번도 호출되지 않아
@@ -127,6 +166,17 @@ class RosInterface:
             if time.time() - self._last_camera_time < 0.5:
                 continue
 
+            # 시작 후 5초간 프레임이 한 번도 안 오면 1회 경고
+            if (not self._frame_ok and not self._cam_warned
+                    and time.time() - self._start_time > 5.0):
+                self._cam_warned = True
+                print("[camera] 5초간 프레임 없음. 아래를 확인하세요:\n"
+                      "  rostopic hz   {0}/compressed\n"
+                      "  rostopic list | grep compressed\n"
+                      "  (토픽이 없으면 ros_interface.py의 "
+                      "USE_COMPRESSED_CAMERA = False 로 변경)"
+                      .format(config.TOPIC_CAMERA.rstrip('/')))
+
             # 버퍼 초기화 (최초 1회)
             if self._draw_buffer is None:
                 self._draw_buffer = np.full_like(self.image_array, BG_COLOR)
@@ -136,30 +186,87 @@ class RosInterface:
             with self._buf_lock:
                 np.copyto(self.image_array, self._draw_buffer)
 
-    # ── 카메라 콜백 ────────────────────────────────────────
-    def _camera_callback(self, msg: Image):
+    # ── 그리퍼 grasp 상태 콜백 ───────────────────────────────
+    def _grasp_status_callback(self, msg: Bool):
+        """젯슨 neck_dynamixel_node의 grasp 판정 결과 수신 → overlay 갱신.
+        디바운스는 이미 젯슨쪽에서 처리하고 오므로 여기선 그대로 반영만 함."""
+        self.overlay['grasp_state'] = bool(msg.data)
+
+    # ── 카메라 콜백 (압축 JPEG) ────────────────────────────
+    def _camera_callback(self, msg: CompressedImage):
         if self.video_playing:
             return   # 영상 재생 중에는 카메라 프레임이 영상을 덮어쓰지 못하도록 차단
         try:
-            self._last_camera_time = time.time()   # 카메라 활성 시각 갱신
-            frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
-            frame = cv2.resize(frame, (1280, 720))
-
-            # 더블 버퍼 초기화 (최초 1회)
-            if self._draw_buffer is None:
-                self._draw_buffer = np.zeros_like(self.image_array)
-
-            # 버퍼에 프레임 + 오버레이를 완전히 그린 후
-            self._draw_buffer[:, :1280, :] = frame
-            self._draw_buffer[:, 1280:, :] = frame
-            self._draw_overlay(self._draw_buffer)
-
-            # 완성된 프레임을 한 번에 복사 → 깜박임 방지
-            with self._buf_lock:
-                np.copyto(self.image_array, self._draw_buffer)
-
+            arr   = np.frombuffer(msg.data, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)   # BGR로 디코딩
+            if frame is None:
+                # imdecode는 실패 시 예외가 아니라 None을 반환함.
+                # 여기서 _last_camera_time을 갱신하지 않아야 오버레이 루프가
+                # 대체 화면을 계속 그려줌 (완전 회색 화면 방지).
+                self._decode_fail += 1
+                if self._decode_fail in (1, 30, 300):
+                    print(f"[camera] JPEG 디코딩 실패 {self._decode_fail}회 "
+                          f"(data {len(msg.data)} bytes) — 압축 토픽 형식 확인 필요")
+                return
+            # 압축 토픽은 BGR로 디코딩되므로 RGB로 변환
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self._push_frame(frame)
         except Exception as e:
-            print(f"카메라 오류: {e}")
+            print(f"카메라 오류(compressed): {e}")
+
+    # ── 카메라 콜백 (무압축) ───────────────────────────────
+    def _camera_callback_raw(self, msg: Image):
+        if self.video_playing:
+            return
+        try:
+            frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
+            self._push_frame(frame)
+        except Exception as e:
+            print(f"카메라 오류(raw): {e}")
+
+    # ── 프레임 → 공유 버퍼 (두 콜백 공통) ──────────────────
+    def _push_frame(self, frame):
+        self._last_camera_time = time.time()   # 카메라 활성 시각 갱신
+        if not self._frame_ok:
+            self._frame_ok = True
+            print(f"[camera] 첫 프레임 수신 OK — 원본 {frame.shape[1]}x{frame.shape[0]}")
+
+        # 더블 버퍼 초기화 (최초 1회)
+        if self._draw_buffer is None:
+            self._draw_buffer = np.zeros_like(self.image_array)
+
+        # ── 종횡비 유지 배치 (letterbox / pillarbox) ────────
+        # 640x480(4:3)을 1280x720(16:9)에 그냥 늘리면 가로로 33% 왜곡됨.
+        # 비율을 유지해 960x720으로 축소 배치하고 좌우는 검은 여백으로 둠.
+        h, w = frame.shape[:2]
+        if self._fit_geom is None or self._fit_geom[0] != (h, w):
+            scale = min(EYE_W / w, EYE_H / h)
+            nw, nh = int(round(w * scale)), int(round(h * scale))
+            ox, oy = (EYE_W - nw) // 2, (EYE_H - nh) // 2
+            self._fit_geom = ((h, w), nw, nh, ox, oy)
+            print(f"[camera] 배치: {w}x{h} → {nw}x{nh} "
+                  f"(여백 좌우 {ox}px / 상하 {oy}px, 종횡비 유지)")
+
+        _, nw, nh, ox, oy = self._fit_geom
+        fitted = cv2.resize(frame, (nw, nh))
+
+        # 여백 영역을 검게 유지 (오버레이 폴백 화면이 남아있을 수 있으므로 매 프레임)
+        if ox > 0:
+            self._draw_buffer[:, :ox]                       = 0
+            self._draw_buffer[:, ox + nw:EYE_W + ox]         = 0
+            self._draw_buffer[:, EYE_W + ox + nw:]           = 0
+        if oy > 0:
+            self._draw_buffer[:oy]                          = 0
+            self._draw_buffer[oy + nh:]                      = 0
+
+        # 버퍼에 프레임 + 오버레이를 완전히 그린 후 (양쪽 눈 동일)
+        self._draw_buffer[oy:oy + nh, ox:ox + nw]                 = fitted
+        self._draw_buffer[oy:oy + nh, EYE_W + ox:EYE_W + ox + nw] = fitted
+        self._draw_overlay(self._draw_buffer)
+
+        # 완성된 프레임을 한 번에 복사 → 깜박임 방지
+        with self._buf_lock:
+            np.copyto(self.image_array, self._draw_buffer)
 
     # ── 오버레이 그리기 ────────────────────────────────────
     def _draw_overlay(self, img):
@@ -167,7 +274,7 @@ class RosInterface:
         ov    = self.overlay
         state = ov.get('state', 'WAITING_QUEST')
         color = self._STATE_COLORS.get(state, (200, 200, 200))
-        W     = 1280   # 한쪽 눈 너비
+        W     = EYE_W   # 한쪽 눈 너비
 
         for x0 in (0, W):
             self._draw_eye(img, x0, W, state, color, ov)
@@ -293,6 +400,11 @@ class RosInterface:
 
         elif state == 'TELEOP':
             self._draw_hand_info(img, x0, W, ov)
+
+            # 그리퍼 grasp 인디케이터 — 쥐고 있는 동안 오른쪽 위, 상태 이름 바로 아래
+            if ov.get('grasp_state', False):
+                self._put_text_right(img, "GRASP", 82, x0, W, F, 0.8, (60, 220, 60), 2)
+
             # 목 한계 경고 (화면 정중앙)
             neck_warn = ov.get('neck_warn', '')
             if neck_warn:
@@ -312,10 +424,12 @@ class RosInterface:
             cv2.rectangle(img, (x, y), (x + filled, y + h), color, -1)
 
     def _draw_hand_info(self, img, x0, W, ov):
-        l_err    = ov.get('l_err')
-        r_err    = ov.get('r_err')
-        l_joints = ov.get('l_joints', [])
-        r_joints = ov.get('r_joints', [])
+        l_err       = ov.get('l_err')
+        r_err       = ov.get('r_err')
+        l_joints    = ov.get('l_joints', [])
+        r_joints    = ov.get('r_joints', [])
+        torso_yaw   = ov.get('torso_yaw',   0.0)
+        torso_state = ov.get('torso_state', '')
         F = cv2.FONT_HERSHEY_SIMPLEX
 
         def err_color(e):
@@ -326,27 +440,66 @@ class RosInterface:
 
         img[550:, x0:x0 + W] = (img[550:, x0:x0 + W] * 0.45).astype(np.uint8)
 
-        # IK 오차 (오른쪽 정렬)
+        # ── Torso yaw 표시 (왼쪽, 상단) ────────────────────────────
+        # state별 색상: COMP=주황, RETURN=하늘, 비활성=회색
+        if torso_state == 'COMP':
+            t_color = (0, 165, 255)    # 주황
+            t_label = f"TORSO COMP  {torso_yaw:+.3f} rad"
+        elif torso_state == 'RETURN':
+            t_color = (255, 220, 60)   # 하늘
+            t_label = f"TORSO RTN   {torso_yaw:+.3f} rad"
+        else:
+            t_color = (80, 80, 80)     # 회색 (비활성)
+            t_label = None
+
+        if t_label is not None:
+            cv2.putText(img, t_label, (x0 + 18, 580), F, 0.75, t_color, 2, cv2.LINE_AA)
+
+        # Torso 게이지 바 (±1.57 범위)
+        BAR_X   = x0 + 18
+        BAR_Y   = 590
+        BAR_W   = 220
+        BAR_H   = 10
+        BAR_MAX = 1.57
+        # 배경 바
+        cv2.rectangle(img, (BAR_X, BAR_Y), (BAR_X + BAR_W, BAR_Y + BAR_H),
+                      (50, 50, 50), -1)
+        # 중앙선
+        mid_x = BAR_X + BAR_W // 2
+        cv2.line(img, (mid_x, BAR_Y - 2), (mid_x, BAR_Y + BAR_H + 2),
+                 (100, 100, 100), 1)
+        # 현재값 마커
+        if abs(torso_yaw) > 0.003:
+            ratio    = float(np.clip(torso_yaw / BAR_MAX, -1.0, 1.0))
+            marker_x = int(mid_x + ratio * (BAR_W // 2))
+            fill_x0  = min(mid_x, marker_x)
+            fill_x1  = max(mid_x, marker_x)
+            bar_color = t_color if t_label else (80, 80, 80)
+            cv2.rectangle(img, (fill_x0, BAR_Y), (fill_x1, BAR_Y + BAR_H),
+                          bar_color, -1)
+            cv2.circle(img, (marker_x, BAR_Y + BAR_H // 2), 5, bar_color, -1)
+
+        # ── IK 오차 (오른쪽 정렬) ──────────────────────────────────
         lc  = err_color(l_err)
         ltx = f"L err: {l_err*100:.1f}cm" if l_err is not None else "L err: ---"
-        self._put_text_right(img, ltx, 580, x0, W, F, 0.8, lc, 2)
+        self._put_text_right(img, ltx, 610, x0, W, F, 0.8, lc, 2)
 
         rc  = err_color(r_err)
         rtx = f"R err: {r_err*100:.1f}cm" if r_err is not None else "R err: ---"
-        self._put_text_right(img, rtx, 610, x0, W, F, 0.8, rc, 2)
+        self._put_text_right(img, rtx, 640, x0, W, F, 0.8, rc, 2)
 
-        # 관절각 (오른쪽 정렬)
+        # ── 관절각 (오른쪽 정렬) ───────────────────────────────────
         joint_names = ["SP", "SR", "SY", "EP", "WY"]
         if l_joints:
             header = "L:  " + "  ".join(f"{n:>6}" for n in joint_names)
             values = "    " + "  ".join(f"{v:>6.2f}" for v in l_joints)
-            self._put_text_right(img, header, 640, x0, W, F, 0.55, (120, 120, 120), 1)
-            self._put_text_right(img, values, 660, x0, W, F, 0.55, (180, 180, 180), 1)
+            self._put_text_right(img, header, 665, x0, W, F, 0.55, (120, 120, 120), 1)
+            self._put_text_right(img, values, 685, x0, W, F, 0.55, (180, 180, 180), 1)
         if r_joints:
             header = "R:  " + "  ".join(f"{n:>6}" for n in joint_names)
             values = "    " + "  ".join(f"{v:>6.2f}" for v in r_joints)
-            self._put_text_right(img, header, 690, x0, W, F, 0.55, (120, 120, 120), 1)
-            self._put_text_right(img, values, 710, x0, W, F, 0.55, (180, 180, 180), 1)
+            self._put_text_right(img, header, 700, x0, W, F, 0.55, (120, 120, 120), 1)
+            self._put_text_right(img, values, 715, x0, W, F, 0.55, (180, 180, 180), 1)
 
     # ── 관절 상태 콜백 ─────────────────────────────────────
     def _joint_state_callback(self, msg: JointState):
@@ -363,12 +516,31 @@ class RosInterface:
             return self.q_init.copy()
 
         q_cur = pin.neutral(self.model)
+        unmatched, out_of_range = [], []
+
         for name, val in zip(self._current_joint_state.name,
                              self._current_joint_state.position):
-            if self.model.existJointName(name):
-                jid        = self.model.getJointId(name)
-                idx        = self.model.joints[jid].idx_q
-                q_cur[idx] = val
+            mapped = JOINT_NAME_REMAP.get(name, name)
+
+            if not self.model.existJointName(mapped):
+                unmatched.append(name)
+                continue
+
+            lo, hi = config.JOINT_SANITY_RANGE.get(mapped, (-np.pi, np.pi))
+            if not (lo <= val <= hi):
+                out_of_range.append((name, val))
+                continue
+
+            jid        = self.model.getJointId(mapped)
+            idx        = self.model.joints[jid].idx_q
+            q_cur[idx] = val
+
+        if unmatched and not getattr(self, '_warned_unmatched', False):
+            print(f"⚠️  /joint_states 이름 매칭 실패: {unmatched}")
+            self._warned_unmatched = True
+        if out_of_range:
+            print(f"🚨 /joint_states 값 이상 (무시됨): {out_of_range}")
+
         return q_cur
 
     def wait_for_joint_states(self, timeout: float = None) -> np.ndarray:
@@ -391,15 +563,41 @@ class RosInterface:
 
     # ── publish 헬퍼 ───────────────────────────────────────
     def publish_arm(self, data: list):
-        msg      = Float64MultiArray()
+        msg = Float64MultiArray()
         msg.data = data
         self.pub_arm.publish(msg)
+
+        # # ── 임시 디버그: 실제 호출 빈도 + 호출 스택 확인 ──
+        # import traceback
+        # self._arm_pub_count = getattr(self, '_arm_pub_count', 0) + 1
+        # if self._arm_pub_count <= 3:          # 처음 3번만 호출 스택 출력
+        #     print(f"[DEBUG publish_arm #{self._arm_pub_count}] 호출 스택:")
+        #     traceback.print_stack()
+        # now = time.time()
+        # if not hasattr(self, '_arm_pub_last_print'):
+        #     self._arm_pub_last_print = now
+        # if now - self._arm_pub_last_print >= 1.0:
+        #     print(f"[DEBUG publish_arm] 최근 1초간 {self._arm_pub_count}회 호출")
+        #     self._arm_pub_count = 0
+        #     self._arm_pub_last_print = now
 
     def publish_neck(self, yaw: float, pitch: float):
         """목 관절각을 /neck_controller/command 토픽으로 전송 (젯슨 수신용)."""
         msg      = Float64MultiArray()
         msg.data = [float(yaw), float(pitch)]
         self.pub_neck.publish(msg)
+
+    def publish_gripper(self, ratio: float):
+        """그리퍼 개폐 비율(0=열림, 1=닫힘)을 /gripper_controller/command로 전송 (젯슨 수신용)."""
+        msg      = Float64MultiArray()
+        msg.data = [float(np.clip(ratio, 0.0, 1.0))]
+        self.pub_gripper.publish(msg)
+
+    def publish_torso(self, yaw: float):
+        """허리 yaw 관절각을 /torso_controller/command 토픽으로 전송."""
+        msg      = Float64MultiArray()
+        msg.data = [float(yaw)]
+        self.pub_torso.publish(msg)
 
     def publish_hand(self, data: list):
         msg      = Float64MultiArray()

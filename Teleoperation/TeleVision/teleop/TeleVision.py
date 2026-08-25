@@ -81,6 +81,8 @@ class OpenTeleVision:
         self.process.start()
 
     def run(self):
+        import signal
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         self.app.run()
 
     async def on_cam_move(self, event, session, fps=60):

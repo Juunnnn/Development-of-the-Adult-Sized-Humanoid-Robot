@@ -316,3 +316,58 @@ def build_hand_cmd(
     r_cmd = (_retarget_hand(right_lm, is_left=False, use_fe=use_fe, use_aa=use_aa)
              if is_landmark_valid(right_lm) else np.zeros(8))
     return np.concatenate([l_cmd, r_cmd])
+
+
+# ══════════════════════════════════════════════════════════════════
+# §6  그리퍼(오른손 전용) 리타게팅 — Dynamixel XM430 1축 그리퍼
+# ══════════════════════════════════════════════════════════════════
+#   기존 AmazingHand용 FE 캘리브레이션(ANGLE_OPEN/ANGLE_CLOSE)을 그대로
+#   재사용해서, 지정한 손가락들의 "굽힘 비율"을 0(펼침)~1(주먹) 로 평균낸다.
+#   → 이 비율을 그리퍼 tick 범위(GRIPPER_TICK_OPEN~CLOSE)에 매핑하면 됨.
+#   (실제 tick 매핑/모터 전송은 neck_dynamixel_node.py 쪽에서 담당)
+
+GRIPPER_ANGLE_OPEN: dict[int, float] = {
+    2: 100.0,  # 검지
+    3: 100.0,  # 중지
+    4: 100.0,  # 약지    
+}
+GRIPPER_ANGLE_CLOSE: dict[int, float] = {
+    2: 20.0,   # 검지
+    3: 20.0,   # 중지
+    4: 20.0,   # 약지
+}
+
+def compute_grip_ratio(lm: np.ndarray,
+                       fingers: tuple[int, ...] = (2, 3, 4)) -> float:
+    """오른손 Quest landmark (25,3) → 그리퍼 개폐 비율 [0.0, 1.0].
+
+    Parameters
+    ----------
+    lm      : (25,3) Quest landmark. 호출 전 is_landmark_valid(lm)로 검증할 것.
+    fingers : 그립 판정에 쓸 손가락 번호들. 기본값 = 검지·중지·약지(2,3,4).
+              엄지(1)는 굽힘 범위(ANGLE_OPEN/CLOSE)가 달라 기본에서는 뺐음.
+              주먹을 쥘 때 유독 한 손가락만 안 접힌다면 그 손가락을 빼거나,
+              반대로 셋 다 애매하면 (1,2,3,4)로 넓혀서 실험해도 됨.
+
+    Returns
+    -------
+    ratio : 0.0(완전히 펼침) ~ 1.0(주먹 완전히 오므림)
+    """
+    ratios = []
+    for f in fingers:
+        p1_i, p2_i, p3_i = FINGER_ANGLE_POINTS[f]
+        flex = _flex_angle(lm[p1_i], lm[p2_i], lm[p3_i])
+        ratios.append(_map_value(flex, GRIPPER_ANGLE_OPEN[f], GRIPPER_ANGLE_CLOSE[f], 0.0, 1.0))
+    return float(np.clip(np.mean(ratios), 0.0, 1.0))
+
+def grip_debug_angles(lm: np.ndarray,
+                      fingers: tuple[int, ...] = (2, 3, 4)) -> dict[int, float]:
+    """디버그용 — 손가락별 현재 flex 각도(deg) 반환.
+    GRIPPER_ANGLE_OPEN/CLOSE 튜닝용: 손 완전히 펼친 상태에서 이 값 확인 →
+    GRIPPER_ANGLE_OPEN에 반영. 주먹 쥔 상태에서 확인 → GRIPPER_ANGLE_CLOSE에 반영."""
+    return {
+        f: _flex_angle(lm[FINGER_ANGLE_POINTS[f][0]],
+                        lm[FINGER_ANGLE_POINTS[f][1]],
+                        lm[FINGER_ANGLE_POINTS[f][2]])
+        for f in fingers
+    }

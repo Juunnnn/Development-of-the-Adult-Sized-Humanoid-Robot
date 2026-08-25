@@ -172,3 +172,25 @@ def publish_fin(pub, current_vals=None, duration=2.5):
     """
     publish_smooth_move(pub, config.INIT_POS, current_vals,
                         duration=duration, label="종료")
+
+
+def publish_torso_fin(pub, current_yaw: float, duration: float = 2.5):
+    """
+    torso yaw를 현재값에서 0(정면)으로 부드럽게 복귀시킵니다.
+    publish_fin()과 병렬로 호출되어 팔 복귀와 동시에 허리도 정면으로 돌아옴.
+
+    Parameters
+    ----------
+    pub         : rospy.Publisher (Float64MultiArray) — pub_torso
+    current_yaw : 현재 torso yaw 값 [rad]
+    duration    : 복귀 소요 시간 [s] (팔 복귀 시간과 맞추는 게 자연스러움)
+    """
+    hz    = config.CONTROL_HZ
+    steps = int(duration * hz)
+    for i in range(1, steps + 1):
+        t     = i / steps
+        yaw   = current_yaw * (1.0 - t)   # current → 0 선형 보간
+        msg      = Float64MultiArray()
+        msg.data = [float(yaw)]
+        pub.publish(msg)
+        time.sleep(1.0 / hz)
